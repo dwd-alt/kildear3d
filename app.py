@@ -7,9 +7,17 @@ from functools import wraps
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'kildear3d-secret-key-2025'
 
-# Используем SQLite
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+# Создаем папку instance если её нет
+instance_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
+if not os.path.exists(instance_path):
+    os.makedirs(instance_path)
+
+# Используем SQLite с правильным путем
+db_path = os.path.join(instance_path, 'kildear3d.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+print(f"База данных: {db_path}")
 
 db = SQLAlchemy(app)
 
@@ -64,7 +72,15 @@ def index():
 def create_order():
     try:
         data = request.get_json()
-        print(f"Получен заказ: {data}")
+        print(f"📦 Получены данные: {data}")
+        
+        # Проверка обязательных полей
+        if not data.get('modelName'):
+            return jsonify({'error': 'Название модели обязательно'}), 400
+        if not data.get('customerName'):
+            return jsonify({'error': 'Имя обязательно'}), 400
+        if not data.get('contactInfo'):
+            return jsonify({'error': 'Контакты обязательны'}), 400
         
         order = Order(
             model_name=data['modelName'],
@@ -76,11 +92,12 @@ def create_order():
         db.session.add(order)
         db.session.commit()
         
+        print(f"✅ Заказ #{order.id} успешно создан")
         return jsonify({'success': True, 'order_id': order.id})
         
     except Exception as e:
         db.session.rollback()
-        print(f"Ошибка: {e}")
+        print(f"❌ Ошибка: {e}")
         return jsonify({'error': str(e)}), 500
 
 # ==================== АДМИН-ПАНЕЛЬ ====================
@@ -94,6 +111,8 @@ def admin_login():
         admin = Admin.query.filter_by(username=username, password=password).first()
         if admin:
             session['admin_logged_in'] = True
+            session['admin_id'] = admin.id
+            print(f"✅ Админ {username} вошел")
             return redirect(url_for('admin_dashboard'))
         return render_template('admin_login.html', error='Неверный логин или пароль')
     
@@ -112,54 +131,81 @@ def admin_dashboard():
 @app.route('/api/admin/stats')
 @login_required
 def admin_stats():
-    return jsonify({
-        'total_orders': Order.query.count(),
-        'new_orders': Order.query.filter_by(status='new').count(),
-        'in_progress_orders': Order.query.filter_by(status='in_progress').count(),
-        'completed_orders': Order.query.filter_by(status='completed').count(),
-    })
+    try:
+        stats = {
+            'total_orders': Order.query.count(),
+            'new_orders': Order.query.filter_by(status='new').count(),
+            'in_progress_orders': Order.query.filter_by(status='in_progress').count(),
+            'completed_orders': Order.query.filter_by(status='completed').count(),
+        }
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/admin/orders')
 @login_required
 def admin_orders():
-    orders = Order.query.order_by(Order.created_at.desc()).all()
-    return jsonify([o.to_dict() for o in orders])
+    try:
+        orders = Order.query.order_by(Order.created_at.desc()).all()
+        return jsonify([o.to_dict() for o in orders])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/admin/orders/<int:order_id>/status', methods=['PUT'])
 @login_required
 def update_order_status(order_id):
-    data = request.get_json()
-    order = Order.query.get_or_404(order_id)
-    order.status = data.get('status')
-    db.session.commit()
-    return jsonify({'success': True})
+    try:
+        data = request.get_json()
+        order = Order.query.get_or_404(order_id)
+        order.status = data.get('status')
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/admin/orders/<int:order_id>', methods=['DELETE'])
 @login_required
 def delete_order(order_id):
-    order = Order.query.get_or_404(order_id)
-    db.session.delete(order)
-    db.session.commit()
-    return jsonify({'success': True})
+    try:
+        order = Order.query.get_or_404(order_id)
+        db.session.delete(order)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 # ==================== ИНИЦИАЛИЗАЦИЯ ====================
 
 def init_db():
     with app.app_context():
         db.create_all()
+        print("✅ Таблицы созданы")
         
+        # Создание администратора
         if not Admin.query.filter_by(username='admin').first():
             admin = Admin(username='admin', password='admin123')
             db.session.add(admin)
             db.session.commit()
-            print("✅ Админ создан: admin / admin123")
+            print("✅ Администратор создан: admin / admin123")
+        else:
+            print("✅ Администратор уже существует")
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("🚀 Запуск Kildear3D")
+    print("🚀 ЗАПУСК KILDEAR3D СЕРВЕРА")
     print("=" * 50)
+    
     init_db()
-    print("\n📌 http://localhost:5000")
-    print("🔐 Админ: http://localhost:5000/admin (admin/admin123)")
+    
+    print("\n📌 ДОСТУПНЫЕ АДРЕСА:")
+    print("   🌐 САЙТ: http://localhost:5000")
+    print("   🔐 АДМИНКА: http://localhost:5000/admin")
+    print("\n🔑 ДАННЫЕ ДЛЯ ВХОДА:")
+    print("   👤 Логин: admin")
+    print("   🔒 Пароль: admin123")
+    print("\n⚠️  Для остановки нажмите CTRL+C")
     print("=" * 50)
-    app.run(debug=True, port=5000)
+    
+    app.run(debug=True, host='0.0.0.0', port=5000)
