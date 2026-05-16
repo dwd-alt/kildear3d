@@ -1,35 +1,39 @@
-import asyncio
-import logging
 import os
+import asyncio
+import sys
 import json
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+print(f"✅ Python version: {sys.version}")
 
 # ========== КОНФИГУРАЦИЯ ==========
-# Токен берется из переменных окружения Render
 TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    raise ValueError("❌ BOT_TOKEN не найден! Добавьте переменную окружения на Render")
+ADMIN_ID = os.getenv("ADMIN_ID")
 
-# ID администратора (тоже из переменных окружения)
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-if ADMIN_ID == 0:
-    raise ValueError("❌ ADMIN_ID не найден! Добавьте переменную окружения на Render")
+if not TOKEN:
+    print("❌ BOT_TOKEN не задан")
+    sys.exit(1)
+
+if not ADMIN_ID:
+    print("⚠️ ADMIN_ID не задан, уведомления не будут отправляться")
+    ADMIN_ID = None
+else:
+    ADMIN_ID = int(ADMIN_ID)
 
 # ========== ИНИЦИАЛИЗАЦИЯ ==========
 bot = Bot(token=TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# Хранилище заявок (в реальном проекте лучше использовать базу данных)
+# Хранилище заявок
 ORDERS_FILE = "orders.json"
 
 def load_orders():
-    """Загружает заявки из файла"""
     try:
         with open(ORDERS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -37,17 +41,16 @@ def load_orders():
         return {}
 
 def save_orders(orders):
-    """Сохраняет заявки в файл"""
     with open(ORDERS_FILE, "w", encoding="utf-8") as f:
         json.dump(orders, f, indent=2, ensure_ascii=False)
 
-# ========== СОСТОЯНИЯ ДЛЯ ЗАЯВКИ ==========
+# ========== СОСТОЯНИЯ ==========
 class OrderForm(StatesGroup):
-    name = State()           # Имя клиента
-    contact = State()        # Контакт для связи
-    model_type = State()     # Готовая модель или нужен дизайн
-    waiting_files = State()  # Ожидание файлов
-    description = State()    # Описание пожеланий
+    name = State()
+    contact = State()
+    model_type = State()
+    waiting_files = State()
+    description = State()
 
 # ========== КЛАВИАТУРЫ ==========
 main_menu = ReplyKeyboardMarkup(
@@ -69,10 +72,9 @@ model_type_kb = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ========== ОБРАБОТЧИКИ КОМАНД ==========
+# ========== КОМАНДЫ ==========
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    """Приветственное сообщение"""
     await message.answer(
         "🏭 *Добро пожаловать в сервис 3D печати!*\n\n"
         "Я помогу оформить заказ на печать 3D моделей.\n\n"
@@ -87,21 +89,18 @@ async def cmd_start(message: types.Message):
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
-    """Справка"""
     await message.answer(
         "📖 *Помощь*\n\n"
         "📝 *Оставить заявку* - заполнить форму для заказа\n"
         "❌ *Отмена* - отменить текущую заявку\n"
         "/start - начать заново\n"
-        "/status - проверить статус заявки\n"
-        "/examples - примеры работ\n\n"
+        "/status - проверить статус заявки\n\n"
         "По всем вопросам: @support",
         parse_mode="Markdown"
     )
 
 @dp.message(Command("status"))
 async def cmd_status(message: types.Message):
-    """Проверка статуса заявки"""
     orders = load_orders()
     user_id = str(message.from_user.id)
     
@@ -128,35 +127,19 @@ async def cmd_status(message: types.Message):
             reply_markup=main_menu
         )
 
-@dp.message(Command("examples"))
-async def cmd_examples(message: types.Message):
-    """Примеры работ"""
-    await message.answer_photo(
-        photo="https://i.imgur.com/example.jpg",  # Замените на реальную ссылку
-        caption="🏆 *Примеры наших работ*\n\n"
-        "• Детали для прототипов\n"
-        "• Фигурки и сувениры\n"
-        "• Функциональные детали\n"
-        "• Медицинские модели\n\n"
-        "Свяжитесь с нами для точного расчета!",
-        parse_mode="Markdown"
-    )
-
-# ========== ОБРАБОТЧИКИ ЗАЯВКИ ==========
+# ========== ЗАЯВКА ==========
 @dp.message(F.text == "📝 Оставить заявку")
 async def start_order(message: types.Message, state: FSMContext):
-    """Начало оформления заявки"""
     await state.set_state(OrderForm.name)
     await message.answer(
         "🔹 *Как вас зовут?*\n\n"
-        "Напишите ваше имя и фамилию:",
+        "Напишите ваше имя:",
         reply_markup=cancel_kb,
         parse_mode="Markdown"
     )
 
 @dp.message(F.text == "❌ Отмена")
 async def cancel_order(message: types.Message, state: FSMContext):
-    """Отмена заявки"""
     await state.clear()
     await message.answer(
         "❌ Заявка отменена.\n\n"
@@ -166,7 +149,6 @@ async def cancel_order(message: types.Message, state: FSMContext):
 
 @dp.message(OrderForm.name)
 async def get_name(message: types.Message, state: FSMContext):
-    """Получение имени"""
     if len(message.text) < 2:
         await message.answer("❌ Пожалуйста, введите корректное имя (минимум 2 символа)")
         return
@@ -177,7 +159,7 @@ async def get_name(message: types.Message, state: FSMContext):
         "🔹 *Где вам удобно связаться?*\n\n"
         "📱 Номер телефона\n"
         "📧 Email\n"
-        "Или оставьте пустым - напишу сюда в Telegram\n\n"
+        "Или напишите 'пропустить' - буду писать сюда в Telegram\n\n"
         "Введите контактные данные:",
         reply_markup=cancel_kb,
         parse_mode="Markdown"
@@ -185,7 +167,6 @@ async def get_name(message: types.Message, state: FSMContext):
 
 @dp.message(OrderForm.contact)
 async def get_contact(message: types.Message, state: FSMContext):
-    """Получение контакта"""
     contact = message.text.strip()
     if not contact or contact.lower() == "пропустить":
         username = message.from_user.username
@@ -205,13 +186,12 @@ async def get_contact(message: types.Message, state: FSMContext):
 
 @dp.message(OrderForm.model_type)
 async def get_model_type(message: types.Message, state: FSMContext):
-    """Выбор типа модели"""
     if "готовая модель" in message.text:
-        await state.update_data(model_type="ready")
+        await state.update_data(model_type="ready", files=[])
         await state.set_state(OrderForm.waiting_files)
         await message.answer(
             "📁 *Отправьте файл модели*\n\n"
-            "Поддерживаемые форматы: STL, OBJ, 3MF, STEP\n\n"
+            "Поддерживаемые форматы: STL, OBJ, 3MF\n\n"
             "📌 Можно отправить несколько файлов.\n"
             "Когда закончите, напишите *готово*",
             reply_markup=cancel_kb,
@@ -225,8 +205,7 @@ async def get_model_type(message: types.Message, state: FSMContext):
             "Укажите:\n"
             "• Назначение детали\n"
             "• Примерные размеры\n"
-            "• Особенности формы\n"
-            "• Ссылки на референсы (если есть)\n\n"
+            "• Особенности формы\n\n"
             "Чем подробнее описание, тем точнее будет результат!",
             reply_markup=cancel_kb,
             parse_mode="Markdown"
@@ -236,18 +215,17 @@ async def get_model_type(message: types.Message, state: FSMContext):
 
 @dp.message(OrderForm.waiting_files)
 async def get_files(message: types.Message, state: FSMContext):
-    """Получение файлов модели"""
     data = await state.get_data()
     files = data.get("files", [])
     
     if message.document:
-        # Проверка расширения файла
         file_name = message.document.file_name
-        ext = file_name.split('.')[-1].lower()
+        ext = file_name.split('.')[-1].lower() if '.' in file_name else ''
+        
         if ext not in ['stl', 'obj', '3mf', 'step']:
             await message.answer(
                 "❌ Неподдерживаемый формат файла.\n"
-                "Отправьте файлы в формате: STL, OBJ, 3MF или STEP"
+                "Отправьте файлы в формате: STL, OBJ, 3MF"
             )
             return
         
@@ -274,11 +252,10 @@ async def get_files(message: types.Message, state: FSMContext):
         await state.set_state(OrderForm.description)
         await message.answer(
             "📝 *Опишите пожелания по печати:*\n\n"
-            "• Материал (PLA, ABS, PETG, смола и т.д.)\n"
+            "• Материал (PLA, ABS, PETG, смола)\n"
             "• Цвет\n"
-            "• Качество печати (черновая/стандартная/высокая)\n"
-            "• Сроки\n"
-            "• Особые требования\n\n"
+            "• Качество печати\n"
+            "• Сроки\n\n"
             "Напишите все, что считаете важным:",
             reply_markup=cancel_kb,
             parse_mode="Markdown"
@@ -291,10 +268,8 @@ async def get_files(message: types.Message, state: FSMContext):
 
 @dp.message(OrderForm.description)
 async def get_description(message: types.Message, state: FSMContext):
-    """Получение описания и отправка заявки"""
     await state.update_data(description=message.text)
     
-    # Собираем все данные
     user_data = await state.get_data()
     user_id = message.from_user.id
     
@@ -311,31 +286,25 @@ async def get_description(message: types.Message, state: FSMContext):
         "created_at": str(message.date)
     }
     
-    # Сохраняем заявку
     orders = load_orders()
     orders[str(user_id)] = order
     save_orders(orders)
     
-    # Подтверждение клиенту
     await message.answer(
         "✅ *Заявка успешно отправлена!*\n\n"
         "Я передал её оператору.\n"
-        "Ожидайте ответа в ближайшее время.\n\n"
         "Статус заявки можно проверить командой /status",
         reply_markup=main_menu,
         parse_mode="Markdown"
     )
     
-    # Отправляем админу
-    await notify_admin(order, user_id)
+    if ADMIN_ID:
+        await notify_admin(order, user_id)
     
-    # Очищаем состояние
     await state.clear()
 
-# ========== УВЕДОМЛЕНИЕ АДМИНИСТРАТОРУ ==========
+# ========== УВЕДОМЛЕНИЕ АДМИНУ ==========
 async def notify_admin(order: dict, user_id: int):
-    """Отправляет заявку администратору"""
-    
     model_type_text = "✅ Готовая модель" if order["model_type"] == "ready" else "🎨 Требуется дизайн в Blender"
     
     text = (
@@ -343,7 +312,7 @@ async def notify_admin(order: dict, user_id: int):
         f"{'='*30}\n\n"
         f"👤 *Клиент:* {order['name']}\n"
         f"🆔 *Telegram ID:* {user_id}\n"
-        f"📱 *Имя в TG:* @{order['username'] or 'Нет username'}\n"
+        f"📱 *Username:* @{order['username'] or 'Нет'}\n"
         f"📞 *Контакт:* {order['contact']}\n\n"
         f"🖨️ *Тип:* {model_type_text}\n\n"
         f"📝 *Пожелания:*\n{order['description']}\n"
@@ -352,28 +321,23 @@ async def notify_admin(order: dict, user_id: int):
     if order["files"]:
         text += f"\n📁 *Файлов:* {len(order['files'])} шт.\n"
     
-    # Кнопки для админа
     kb = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="💬 Написать клиенту", url=f"tg://user?id={user_id}")],
-        [types.InlineKeyboardButton(text="✅ Принять заявку", callback_data=f"accept_{user_id}"),
-         types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{user_id}")],
-        [types.InlineKeyboardButton(text="🔄 В работу", callback_data=f"progress_{user_id}")]
+        [types.InlineKeyboardButton(text="✅ Принять", callback_data=f"accept_{user_id}"),
+         types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{user_id}")]
     ])
     
     await bot.send_message(ADMIN_ID, text, parse_mode="Markdown", reply_markup=kb)
     
-    # Отправляем файлы
     if order["files"]:
         await bot.send_message(ADMIN_ID, "📎 *Файлы модели:*", parse_mode="Markdown")
         for file in order["files"]:
             await bot.send_document(ADMIN_ID, file["file_id"], caption=file["name"])
 
-# ========== ОБРАБОТКА ДЕЙСТВИЙ АДМИНИСТРАТОРА ==========
+# ========== ДЕЙСТВИЯ АДМИНА ==========
 @dp.callback_query()
 async def handle_admin_actions(callback: types.CallbackQuery):
-    """Обработка нажатий кнопок админом"""
-    
-    if callback.from_user.id != ADMIN_ID:
+    if ADMIN_ID and callback.from_user.id != ADMIN_ID:
         await callback.answer("❌ Эта кнопка только для администратора", show_alert=True)
         return
     
@@ -386,12 +350,10 @@ async def handle_admin_actions(callback: types.CallbackQuery):
             orders[str(user_id)]["status"] = "accepted"
             save_orders(orders)
             
-            # Уведомляем клиента
             await bot.send_message(
                 user_id,
                 "✅ *Ваша заявка принята!*\n\n"
-                "Скоро с вами свяжется оператор для уточнения деталей.\n"
-                "Вы также можете написать нам: @support",
+                "Скоро с вами свяжется оператор.",
                 parse_mode="Markdown"
             )
             
@@ -407,11 +369,7 @@ async def handle_admin_actions(callback: types.CallbackQuery):
             
             await bot.send_message(
                 user_id,
-                "❌ *К сожалению, ваша заявка отклонена.*\n\n"
-                "Возможные причины:\n"
-                "• Неподходящая геометрия модели\n"
-                "• Превышение максимальных размеров\n"
-                "• Невозможность изготовления\n\n"
+                "❌ *Ваша заявка отклонена.*\n\n"
                 "Вы можете оставить новую заявку через /start",
                 parse_mode="Markdown"
             )
@@ -420,36 +378,13 @@ async def handle_admin_actions(callback: types.CallbackQuery):
                 callback.message.text + "\n\n❌ ЗАЯВКА ОТКЛОНЕНА"
             )
             await callback.answer("❌ Заявка отклонена")
-    
-    elif action == "progress":
-        if str(user_id) in orders:
-            orders[str(user_id)]["status"] = "in_progress"
-            save_orders(orders)
-            
-            await bot.send_message(
-                user_id,
-                "🔄 *Ваш заказ в работе!*\n\n"
-                "Мы уже начали подготовку к печати.\n"
-                "О готовности сообщим дополнительно.",
-                parse_mode="Markdown"
-            )
-            
-            await callback.message.edit_text(
-                callback.message.text + "\n\n🔄 ЗАКАЗ В РАБОТЕ"
-            )
-            await callback.answer("Заказ в работе")
 
-# ========== ЗАПУСК БОТА ==========
+# ========== ЗАПУСК ==========
 async def main():
-    """Запуск бота"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    logging.info("🚀 Бот запускается...")
+    print("🚀 Бот запускается...")
+    print(f"🤖 Bot token: {TOKEN[:10]}...")
+    print(f"👑 Admin ID: {ADMIN_ID}")
     await dp.start_polling(bot)
-    logging.info("✅ Бот успешно запущен")
 
 if __name__ == "__main__":
     asyncio.run(main())
