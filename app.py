@@ -7,17 +7,26 @@ from functools import wraps
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'kildear3d-secret-key-2025')
 
-# PostgreSQL подключение
+# Получаем DATABASE_URL из переменных окружения
 DATABASE_URL = os.environ.get('DATABASE_URL')
+
 if not DATABASE_URL:
-    print("⚠️  DATABASE_URL не найден, используем SQLite для теста")
+    print("❌ ОШИБКА: DATABASE_URL не найден!")
+    print("Добавьте переменную окружения DATABASE_URL в настройках Render.com")
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 else:
+    # Render.com дает postgres://, меняем на postgresql://
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+    print(f"✅ Подключение к PostgreSQL установлено")
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 5,
+    'pool_recycle': 3600,
+    'pool_pre_ping': True,
+}
 
 db = SQLAlchemy(app)
 
@@ -62,25 +71,18 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# ==================== ОСНОВНЫЕ МАРШРУТЫ ====================
+# ==================== МАРШРУТЫ ====================
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/api/orders', methods=['POST', 'GET'])
+@app.route('/api/orders', methods=['POST'])
 def create_order():
-    # Для GET запроса просто возвращаем информацию
-    if request.method == 'GET':
-        return jsonify({'status': 'API работает', 'message': 'Отправьте POST запрос с данными заказа'})
-    
     try:
         data = request.get_json()
         print(f"📦 Получен заказ: {data}")
         
-        # Валидация
-        if not data:
-            return jsonify({'error': 'Нет данных'}), 400
         if not data.get('modelName'):
             return jsonify({'error': 'Название модели обязательно'}), 400
         if not data.get('customerName'):
@@ -105,6 +107,10 @@ def create_order():
         db.session.rollback()
         print(f"❌ Ошибка: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/test')
+def test():
+    return jsonify({'status': 'ok', 'message': 'API работает!'})
 
 # ==================== АДМИН-ПАНЕЛЬ ====================
 
@@ -181,49 +187,41 @@ def delete_order(order_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-# ==================== ИНИЦИАЛИЗАЦИЯ ====================
+# ==================== ИНИЦИАЛИЗАЦИЯ БД ====================
 
-def init_db():
-    with app.app_context():
-        try:
-            db.create_all()
-            print("✅ Таблицы созданы")
-            
-            # Создание администратора
-            if not Admin.query.filter_by(username='admin').first():
-                admin = Admin(username='admin', password='admin123')
-                db.session.add(admin)
-                db.session.commit()
-                print("✅ Администратор создан: admin / admin123")
-            
-            # Создание тестового заказа
-            if Order.query.count() == 0:
-                test_order = Order(
-                    model_name='Тестовый заказ',
-                    customer_name='Тест',
-                    contact_info='@test',
-                    description='Тестовое описание',
-                    status='new'
-                )
-                db.session.add(test_order)
-                db.session.commit()
-                print("✅ Тестовый заказ создан")
-        except Exception as e:
-            print(f"❌ Ошибка инициализации БД: {e}")
+with app.app_context():
+    db.create_all()
+    print("✅ Таблицы созданы")
+    
+    # Создание администратора
+    if not Admin.query.filter_by(username='admin').first():
+        admin = Admin(username='admin', password='admin123')
+        db.session.add(admin)
+        db.session.commit()
+        print("✅ Администратор создан: admin / admin123")
+    
+    # Создание тестового заказа
+    if Order.query.count() == 0:
+        test_order = Order(
+            model_name='Тестовый заказ - Фигурка дракона',
+            customer_name='Тестовый клиент',
+            contact_info='@test_user',
+            description='Высота 15см, цвет на выбор',
+            status='new'
+        )
+        db.session.add(test_order)
+        db.session.commit()
+        print("✅ Тестовый заказ создан")
 
 # ==================== ЗАПУСК ====================
 
 if __name__ == '__main__':
-    print("=" * 60)
+    print("=" * 50)
     print("🚀 ЗАПУСК KILDEAR3D СЕРВЕРА")
-    print("=" * 60)
-    
-    print(f"📡 База данных: {app.config['SQLALCHEMY_DATABASE_URI'][:50]}...")
-    
-    init_db()
+    print("=" * 50)
     
     port = int(os.environ.get('PORT', 5000))
-    print(f"\n📌 Порт: {port}")
-    print("=" * 60)
+    print(f"📌 Порт: {port}")
+    print("=" * 50)
     
     app.run(host='0.0.0.0', port=port)
