@@ -1,11 +1,12 @@
 import os
 import sqlite3
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
+from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for, send_from_directory
 from flask_cors import CORS
 from functools import wraps
 import logging
 import traceback
+import json
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -14,20 +15,26 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'kildear3d_secret_key_2025')
 app.config['JSON_AS_ASCII'] = False
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
 
-# Настройка CORS - РАЗРЕШАЕМ ВСЕ для тестирования
-CORS(app, origins='*', supports_credentials=True)
+# Настройка CORS - разрешаем все для тестирования
+CORS(app, origins='*', supports_credentials=True, methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
 # База данных
 DB_PATH = '/tmp/orders.db'
 
-# Проверка и создание директории /tmp
+# Проверка доступа к /tmp
 try:
     os.makedirs('/tmp', exist_ok=True)
-    logger.info("✅ Директория /tmp доступна")
+    test_file = '/tmp/test_write.txt'
+    with open(test_file, 'w') as f:
+        f.write('test')
+    os.remove(test_file)
+    logger.info("✅ /tmp доступен для записи")
 except Exception as e:
-    logger.error(f"❌ Ошибка с /tmp: {e}")
+    logger.error(f"❌ Ошибка доступа к /tmp: {e}")
     DB_PATH = 'orders.db'
+    logger.info(f"⚠️ Используем локальную БД: {DB_PATH}")
 
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'kildear3d2025')
@@ -40,9 +47,9 @@ def init_db():
         c.execute('''
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                model_name TEXT,
-                customer_name TEXT,
-                contact_info TEXT,
+                model_name TEXT NOT NULL,
+                customer_name TEXT NOT NULL,
+                contact_info TEXT NOT NULL,
                 plastic TEXT,
                 model_link TEXT,
                 requirements TEXT,
@@ -52,10 +59,10 @@ def init_db():
         ''')
         conn.commit()
         conn.close()
-        logger.info(f"✅ База данных готова: {DB_PATH}")
+        logger.info(f"✅ База данных инициализирована: {DB_PATH}")
         return True
     except Exception as e:
-        logger.error(f"❌ Ошибка БД: {e}")
+        logger.error(f"❌ Ошибка инициализации БД: {e}")
         return False
 
 init_db()
@@ -68,260 +75,108 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# ГЛАВНАЯ СТРАНИЦА (ВСТРОЕННАЯ ФОРМА)
+# Главная страница - отдаем ваш HTML
 @app.route('/')
 def index():
-    return render_template_string('''
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kildear3D - 3D печать на заказ</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 24px;
-            padding: 40px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-        }
-        h1 { color: #333; margin-bottom: 10px; text-align: center; }
-        .subtitle { color: #666; margin-bottom: 30px; text-align: center; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
-        input, select, textarea {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 16px;
-        }
-        textarea { resize: vertical; min-height: 100px; }
-        button {
-            width: 100%;
-            padding: 14px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        button:hover { background: #5a67d8; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
-        .message {
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .loading { text-align: center; margin-top: 10px; color: #667eea; display: none; }
-        .required { color: #e74c3c; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>📦 Kildear3D</h1>
-        <div class="subtitle">3D печать на заказ</div>
-        
-        <div id="successMessage" class="message success"></div>
-        <div id="errorMessage" class="message error"></div>
-        <div id="loading" class="loading">⏳ Отправка...</div>
-        
-        <form id="orderForm">
-            <div class="form-group">
-                <label>Название модели <span class="required">*</span></label>
-                <input type="text" id="modelName" required>
-            </div>
-            
-            <div class="form-group">
-                <label>Ваше имя <span class="required">*</span></label>
-                <input type="text" id="customerName" required>
-            </div>
-            
-            <div class="form-group">
-                <label>Контактные данные (телефон/email) <span class="required">*</span></label>
-                <input type="text" id="contactInfo" required>
-            </div>
-            
-            <div class="form-group">
-                <label>Тип пластика / цвет</label>
-                <input type="text" id="plastic" placeholder="Например: PLA, черный">
-            </div>
-            
-            <div class="form-group">
-                <label>Ссылка на модель (если есть)</label>
-                <input type="url" id="modelLink" placeholder="https://...">
-            </div>
-            
-            <div class="form-group">
-                <label>Дополнительные требования</label>
-                <textarea id="requirements" placeholder="Опишите пожелания по печати..."></textarea>
-            </div>
-            
-            <button type="submit" id="submitBtn">📩 Отправить заявку</button>
-        </form>
-    </div>
-    
-    <script>
-        const form = document.getElementById('orderForm');
-        const submitBtn = document.getElementById('submitBtn');
-        const successDiv = document.getElementById('successMessage');
-        const errorDiv = document.getElementById('errorMessage');
-        const loadingDiv = document.getElementById('loading');
-        
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            // Скрываем старые сообщения
-            successDiv.style.display = 'none';
-            errorDiv.style.display = 'none';
-            
-            // Собираем данные
-            const formData = {
-                modelName: document.getElementById('modelName').value.trim(),
-                customerName: document.getElementById('customerName').value.trim(),
-                contactInfo: document.getElementById('contactInfo').value.trim(),
-                plastic: document.getElementById('plastic').value.trim() || 'Не указан',
-                modelLink: document.getElementById('modelLink').value.trim(),
-                requirements: document.getElementById('requirements').value.trim()
-            };
-            
-            // Валидация
-            if (!formData.modelName || !formData.customerName || !formData.contactInfo) {
-                errorDiv.textContent = '❌ Пожалуйста, заполните все обязательные поля';
-                errorDiv.style.display = 'block';
-                return;
-            }
-            
-            // Показываем загрузку
-            submitBtn.disabled = true;
-            loadingDiv.style.display = 'block';
-            
-            try {
-                const response = await fetch('/api/orders', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(formData)
-                });
-                
-                // Проверяем статус ответа
-                if (!response.ok) {
-                    const text = await response.text();
-                    throw new Error(`Сервер вернул ошибку ${response.status}: ${text || 'нет данных'}`);
-                }
-                
-                // Пытаемся получить JSON
-                let data;
-                try {
-                    data = await response.json();
-                } catch (e) {
-                    throw new Error('Сервер вернул неверный ответ');
-                }
-                
-                if (data.success) {
-                    successDiv.textContent = '✅ Заявка успешно отправлена! Мы свяжемся с вами в ближайшее время.';
-                    successDiv.style.display = 'block';
-                    form.reset();
-                } else {
-                    throw new Error(data.error || 'Неизвестная ошибка');
-                }
-                
-            } catch (error) {
-                console.error('Ошибка:', error);
-                errorDiv.textContent = '❌ ' + error.message;
-                errorDiv.style.display = 'block';
-            } finally {
-                submitBtn.disabled = false;
-                loadingDiv.style.display = 'none';
-            }
-        });
-    </script>
-</body>
-</html>
-    ''')
-
-# API ENDPOINTS
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """Проверка работоспособности"""
     try:
-        return jsonify({
-            'status': 'ok',
-            'time': datetime.now().isoformat(),
-            'database': os.path.exists(DB_PATH)
-        }), 200
+        # Пытаемся прочитать ваш index.html
+        if os.path.exists('index.html'):
+            with open('index.html', 'r', encoding='utf-8') as f:
+                return f.read()
+        else:
+            logger.error("index.html не найден")
+            return "Файл index.html не найден. Пожалуйста, поместите его в ту же директорию, что и app.py", 404
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.error(f"Ошибка загрузки index.html: {e}")
+        return f"Ошибка загрузки: {e}", 500
 
-@app.route('/api/orders', methods=['POST'])
+# API endpoint для заказов
+@app.route('/api/orders', methods=['POST', 'OPTIONS'])
 def create_order():
     """Создание нового заказа"""
+    # Обработка preflight запроса CORS
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
+    
     try:
-        # Получаем данные
+        # Получаем данные из запроса
+        if not request.data:
+            logger.error("Пустой запрос")
+            return jsonify({'error': 'Пустой запрос'}), 400
+        
         data = request.get_json()
         
         if not data:
-            return jsonify({'error': 'Нет данных'}), 400
+            logger.error("Не удалось распарсить JSON")
+            return jsonify({'error': 'Неверный формат данных'}), 400
         
-        logger.info(f"Получены данные: {data}")
+        logger.info(f"Получены данные: {json.dumps(data, ensure_ascii=False)}")
         
         # Проверяем обязательные поля
-        required = ['modelName', 'customerName', 'contactInfo']
-        for field in required:
-            if not data.get(field) or not str(data.get(field)).strip():
+        required_fields = ['modelName', 'customerName', 'contactInfo']
+        for field in required_fields:
+            if not data.get(field):
                 return jsonify({'error': f'Поле {field} обязательно'}), 400
         
-        # Сохраняем в БД
+        # Сохраняем в базу данных
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         c.execute('''
-            INSERT INTO orders (model_name, customer_name, contact_info, plastic, model_link, requirements, timestamp, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO orders (
+                model_name, 
+                customer_name, 
+                contact_info, 
+                plastic, 
+                model_link, 
+                requirements, 
+                timestamp, 
+                status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            data['modelName'].strip(),
-            data['customerName'].strip(),
-            data['contactInfo'].strip(),
-            data.get('plastic', 'Не указан').strip(),
-            data.get('modelLink', '').strip(),
-            data.get('requirements', '').strip(),
-            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            data['modelName'],
+            data['customerName'],
+            data['contactInfo'],
+            data.get('plastic', 'Не указан'),
+            data.get('modelLink', ''),
+            data.get('requirements', ''),
+            timestamp,
             'new'
         ))
+        
         conn.commit()
         order_id = c.lastrowid
         conn.close()
         
-        logger.info(f"✅ Заявка #{order_id} создана")
+        logger.info(f"✅ Заявка #{order_id} успешно создана!")
         
-        return jsonify({
+        response_data = {
             'success': True,
             'id': order_id,
             'message': 'Заявка успешно создана'
-        }), 201
+        }
+        
+        response = jsonify(response_data)
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 201
         
     except Exception as e:
-        logger.error(f"Ошибка: {e}")
+        logger.error(f"❌ Ошибка при создании заказа: {e}")
         logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        
+        response = jsonify({'error': str(e)})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
 
+# Получение списка заказов
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
-    """Получение списка заказов"""
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -331,11 +186,34 @@ def get_orders():
         conn.close()
         
         orders = [dict(row) for row in rows]
-        return jsonify(orders), 200
+        
+        response = jsonify(orders)
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Ошибка получения заказов: {e}")
+        response = jsonify({'error': str(e)})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
 
-# АДМИН-ПАНЕЛЬ
+# Проверка здоровья
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    try:
+        db_exists = os.path.exists(DB_PATH)
+        response = jsonify({
+            'status': 'ok',
+            'time': datetime.now().isoformat(),
+            'database_exists': db_exists,
+            'server': 'running'
+        })
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+# ============ АДМИН-ПАНЕЛЬ ============
+
 LOGIN_PAGE = '''
 <!DOCTYPE html>
 <html>
@@ -400,7 +278,7 @@ LOGIN_PAGE = '''
 </html>
 '''
 
-ADMIN_PAGE = '''
+ADMIN_DASHBOARD = '''
 <!DOCTYPE html>
 <html>
 <head>
@@ -416,14 +294,13 @@ ADMIN_PAGE = '''
         .stats { display: flex; gap: 20px; margin-bottom: 30px; }
         .stat-card { background: white; border-radius: 16px; padding: 20px; flex: 1; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         .stat-number { font-size: 32px; font-weight: bold; color: #FFB347; }
-        .orders-table { background: white; border-radius: 16px; overflow-x: auto; padding: 20px; }
-        table { width: 100%; border-collapse: collapse; }
+        table { width: 100%; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-collapse: collapse; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #34495e; color: white; }
-        .status { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+        .status { padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; }
         .status-new { background: #3498db; color: white; }
-        .refresh-btn { background: #3498db; color: white; padding: 8px 16px; border-radius: 8px; text-decoration: none; margin-left: 10px; }
-        .view-btn { background: #FFB347; padding: 6px 12px; border-radius: 6px; text-decoration: none; color: #333; }
+        .refresh-btn { background: #3498db; color: white; padding: 8px 16px; border-radius: 8px; text-decoration: none; }
+        .view-btn { background: #FFB347; padding: 4px 12px; border-radius: 6px; text-decoration: none; color: #333; }
     </style>
 </head>
 <body>
@@ -437,26 +314,25 @@ ADMIN_PAGE = '''
     <div class="container">
         <div class="stats">
             <div class="stat-card"><div class="stat-number">{{ orders|length }}</div><div>Всего заявок</div></div>
+            <div class="stat-card"><div class="stat-number">{{ orders|selectattr('status', 'equalto', 'new')|list|length }}</div><div>Новые</div></div>
         </div>
-        <div class="orders-table">
-            <table>
-                <thead>
-                    <tr><th>ID</th><th>Модель</th><th>Заказчик</th><th>Статус</th><th>Дата</th><th>Действия</th></tr>
-                </thead>
-                <tbody>
-                    {% for order in orders %}
-                    <tr>
-                        <td>{{ order.id }}</td>
-                        <td>{{ order.model_name[:50] }}</td>
-                        <td>{{ order.customer_name }}</td>
-                        <td><span class="status status-{{ order.status }}">{{ order.status }}</span></td>
-                        <td>{{ order.timestamp[:16] }}</td>
-                        <td><a href="/admin/order/{{ order.id }}" class="view-btn">Подробнее</a></td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        <table>
+            <thead>
+                <tr><th>ID</th><th>Модель</th><th>Заказчик</th><th>Статус</th><th>Дата</th><th>Действия</th></tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                <tr>
+                    <td>{{ order.id }}</td>
+                    <td>{{ order.model_name[:50] }}</td>
+                    <td>{{ order.customer_name }}</td>
+                    <td><span class="status status-{{ order.status }}">{{ order.status }}</span></td>
+                    <td>{{ order.timestamp[:16] }}</td>
+                    <td><a href="/admin/order/{{ order.id }}" class="view-btn">Подробнее</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </body>
 </html>
@@ -488,7 +364,7 @@ def admin_dashboard():
     rows = c.fetchall()
     conn.close()
     orders = [dict(row) for row in rows]
-    return render_template_string(ADMIN_PAGE, orders=orders)
+    return render_template_string(ADMIN_DASHBOARD, orders=orders)
 
 @app.route('/admin/order/<int:order_id>')
 @login_required
@@ -501,20 +377,25 @@ def view_order(order_id):
     conn.close()
     if not row:
         return "Заявка не найдена", 404
+    order = dict(row)
     return render_template_string('''
         <h1>Заявка #{{ order.id }}</h1>
         <pre>{{ order | tojson(indent=2) }}</pre>
         <a href="/admin">Назад</a>
-    ''', order=dict(row))
+    ''', order=order)
 
-# ЗАПУСК
+# Запуск сервера
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("=" * 50)
-    print(f"🚀 Сервер Kildear3D запущен!")
-    print(f"🌐 САЙТ: http://localhost:{port}/")
-    print(f"📊 АДМИН: http://localhost:{port}/admin/login")
+    print("=" * 60)
+    print("🚀 Сервер Kildear3D запущен!")
+    print(f"🌐 Сайт: http://localhost:{port}/")
+    print(f"📊 Админ-панель: http://localhost:{port}/admin/login")
     print(f"🔑 Логин: {ADMIN_USERNAME}")
     print(f"🔐 Пароль: {ADMIN_PASSWORD}")
-    print("=" * 50)
+    print(f"💾 База данных: {DB_PATH}")
+    print("=" * 60)
+    print("\n⚠️  Убедитесь, что файл index.html находится в той же папке, что и app.py")
+    print("=" * 60)
+    
     app.run(host='0.0.0.0', port=port, debug=False)
