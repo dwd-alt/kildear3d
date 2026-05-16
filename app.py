@@ -5,19 +5,24 @@ import os
 from functools import wraps
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'kildear3d-secret-key-2025'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'kildear3d-secret-key-2025')
 
-# Создаем папку instance если её нет
-instance_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
-if not os.path.exists(instance_path):
-    os.makedirs(instance_path)
+# PostgreSQL подключение из переменной окружения Render.com
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    raise Exception("DATABASE_URL not found! Set environment variable.")
 
-# Используем SQLite с правильным путем
-db_path = os.path.join(instance_path, 'kildear3d.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+# Render.com дает postgres://, нужно заменить на postgresql://
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-print(f"База данных: {db_path}")
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 5,
+    'pool_recycle': 3600,
+    'pool_pre_ping': True,
+}
 
 db = SQLAlchemy(app)
 
@@ -70,11 +75,12 @@ def index():
 
 @app.route('/api/orders', methods=['POST'])
 def create_order():
+    """Создание нового заказа"""
     try:
         data = request.get_json()
-        print(f"📦 Получены данные: {data}")
+        print(f"📦 Получен заказ: {data}")
         
-        # Проверка обязательных полей
+        # Валидация
         if not data.get('modelName'):
             return jsonify({'error': 'Название модели обязательно'}), 400
         if not data.get('customerName'):
@@ -92,7 +98,7 @@ def create_order():
         db.session.add(order)
         db.session.commit()
         
-        print(f"✅ Заказ #{order.id} успешно создан")
+        print(f"✅ Заказ #{order.id} создан")
         return jsonify({'success': True, 'order_id': order.id})
         
     except Exception as e:
@@ -180,6 +186,7 @@ def delete_order(order_id):
 
 def init_db():
     with app.app_context():
+        # Создаем таблицы
         db.create_all()
         print("✅ Таблицы созданы")
         
@@ -189,23 +196,38 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
             print("✅ Администратор создан: admin / admin123")
-        else:
-            print("✅ Администратор уже существует")
+        
+        # Создание тестового заказа (для примера)
+        if Order.query.count() == 0:
+            test_order = Order(
+                model_name='Тестовый заказ - Фигурка дракона',
+                customer_name='Тестовый клиент',
+                contact_info='@test_user',
+                description='Высота 15см',
+                status='new'
+            )
+            db.session.add(test_order)
+            db.session.commit()
+            print("✅ Создан тестовый заказ")
+
+# ==================== ЗАПУСК ====================
 
 if __name__ == '__main__':
-    print("=" * 50)
-    print("🚀 ЗАПУСК KILDEAR3D СЕРВЕРА")
-    print("=" * 50)
+    print("=" * 60)
+    print("🚀 ЗАПУСК KILDEAR3D СЕРВЕРА (PostgreSQL)")
+    print("=" * 60)
+    
+    print(f"📡 Подключение к БД: {DATABASE_URL[:50]}...")
     
     init_db()
     
     print("\n📌 ДОСТУПНЫЕ АДРЕСА:")
-    print("   🌐 САЙТ: http://localhost:5000")
-    print("   🔐 АДМИНКА: http://localhost:5000/admin")
+    print("   🌐 САЙТ: https://ваш-сайт.onrender.com")
+    print("   🔐 АДМИНКА: https://ваш-сайт.onrender.com/admin")
     print("\n🔑 ДАННЫЕ ДЛЯ ВХОДА:")
     print("   👤 Логин: admin")
     print("   🔒 Пароль: admin123")
-    print("\n⚠️  Для остановки нажмите CTRL+C")
-    print("=" * 50)
+    print("=" * 60)
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
