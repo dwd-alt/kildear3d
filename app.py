@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 print(f"✅ Python version: {sys.version}")
 
@@ -24,6 +24,41 @@ if not ADMIN_ID:
     ADMIN_ID = None
 else:
     ADMIN_ID = int(ADMIN_ID)
+
+# ========== ЮРИДИЧЕСКИЙ ТЕКСТ ==========
+LEGAL_TEXT = """
+📜 *ПРАВИЛА И УСЛОВИЯ 3D ПЕЧАТИ*
+
+🔹 *Оплата:*
+• 100% предоплата перед началом печати
+• Стоимость рассчитывается после получения модели и согласования параметров
+• Оплата принимается на карту или через СБП
+
+🔹 *Ответственность за модель:*
+• Клиент предоставляет готовую модель (STL/OBJ/3MF)
+• Исполнитель НЕ гарантирует качество печати, если модель имеет геометрические ошибки, негерметичность или не соответствует техническим требованиям
+• Рекомендуется проверять модель перед отправкой (программы: Netfabb, Meshmixer)
+
+🔹 *Гарантии:*
+• При нарушении геометрии модели — перепечатка за счет клиента
+• При технической ошибке исполнителя — перепечатка за наш счет
+• Цвет и материал могут незначительно отличаться от ожидаемых
+
+🔹 *Сроки:*
+• Обсуждаются индивидуально после подтверждения заявки
+• Срочные заказы — с наценкой 30%
+
+🔹 *Доставка:*
+• Самовывоз (адрес сообщу после оплаты)
+• Отправка Почтой России / СДЭК (за счет клиента)
+
+🔹 *Отказ от ответственности:*
+• Исполнитель не несет ответственности за использование напечатанной детали не по назначению
+• Функциональность модели зависит от качества предоставленного файла
+• Результат печати может отличаться от ожидаемого клиентом
+
+Нажимая "✅ Принимаю условия", вы подтверждаете согласие с данными правилами.
+"""
 
 # ========== ИНИЦИАЛИЗАЦИЯ ==========
 bot = Bot(token=TOKEN)
@@ -46,11 +81,13 @@ def save_orders(orders):
 
 # ========== СОСТОЯНИЯ ==========
 class OrderForm(StatesGroup):
-    name = State()
-    contact = State()
-    model_type = State()
-    waiting_files = State()
-    description = State()
+    legal_accept = State()      # Принятие правил
+    name = State()              # Имя клиента
+    contact = State()           # Контакт
+    delivery = State()          # Способ получения
+    model_type = State()        # Тип модели
+    waiting_files = State()     # Ожидание файлов
+    description = State()       # Описание
 
 # ========== КЛАВИАТУРЫ ==========
 main_menu = ReplyKeyboardMarkup(
@@ -60,6 +97,21 @@ main_menu = ReplyKeyboardMarkup(
 
 cancel_kb = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text="❌ Отмена")]],
+    resize_keyboard=True
+)
+
+legal_kb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="✅ Принимаю условия", callback_data="accept_legal")],
+    [InlineKeyboardButton(text="❌ Не принимаю", callback_data="decline_legal")]
+])
+
+delivery_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🚗 Самовывоз (Москва)")],
+        [KeyboardButton(text="📦 Отправка Почтой России")],
+        [KeyboardButton(text="🚚 Отправка СДЭК")],
+        [KeyboardButton(text="❌ Отмена")]
+    ],
     resize_keyboard=True
 )
 
@@ -92,12 +144,18 @@ async def cmd_help(message: types.Message):
     await message.answer(
         "📖 *Помощь*\n\n"
         "📝 *Оставить заявку* - заполнить форму для заказа\n"
+        "📜 *Правила* - условия печати и оплаты\n"
         "❌ *Отмена* - отменить текущую заявку\n"
         "/start - начать заново\n"
         "/status - проверить статус заявки\n\n"
         "По всем вопросам: @support",
         parse_mode="Markdown"
     )
+
+@dp.message(Command("rules"))
+async def cmd_rules(message: types.Message):
+    """Отправка правил"""
+    await message.answer(LEGAL_TEXT, parse_mode="Markdown")
 
 @dp.message(Command("status"))
 async def cmd_status(message: types.Message):
@@ -110,13 +168,16 @@ async def cmd_status(message: types.Message):
             "new": "⏳ На рассмотрении",
             "accepted": "✅ Принята",
             "rejected": "❌ Отклонена",
-            "in_progress": "🔄 В работе"
+            "in_progress": "🔄 В работе",
+            "ready": "📦 Готово к выдаче",
+            "shipped": "🚚 Отправлено"
         }.get(order.get("status", "new"), "❓ Неизвестно")
         
         await message.answer(
             f"📋 *Статус вашей заявки:* {status_text}\n\n"
             f"👤 Имя: {order['name']}\n"
-            f"📞 Контакт: {order['contact']}\n\n"
+            f"📞 Контакт: {order['contact']}\n"
+            f"🚚 Доставка: {order.get('delivery', 'Не указана')}\n\n"
             f"Оператор свяжется с вами в ближайшее время.",
             parse_mode="Markdown"
         )
@@ -130,13 +191,34 @@ async def cmd_status(message: types.Message):
 # ========== ЗАЯВКА ==========
 @dp.message(F.text == "📝 Оставить заявку")
 async def start_order(message: types.Message, state: FSMContext):
-    await state.set_state(OrderForm.name)
+    # Сначала показываем правила
+    await state.set_state(OrderForm.legal_accept)
     await message.answer(
-        "🔹 *Как вас зовут?*\n\n"
-        "Напишите ваше имя:",
-        reply_markup=cancel_kb,
-        parse_mode="Markdown"
+        LEGAL_TEXT + "\n\n" + "⬇️ *Для продолжения примите условия* ⬇️",
+        parse_mode="Markdown",
+        reply_markup=legal_kb
     )
+
+@dp.callback_query(lambda c: c.data in ["accept_legal", "decline_legal"])
+async def handle_legal(callback: types.CallbackQuery, state: FSMContext):
+    if callback.data == "accept_legal":
+        await callback.message.edit_text("✅ *Условия приняты!* Продолжаем оформление заявки.", parse_mode="Markdown")
+        await state.set_state(OrderForm.name)
+        await callback.message.answer(
+            "🔹 *Как вас зовут?*\n\n"
+            "Напишите ваше имя:",
+            reply_markup=cancel_kb,
+            parse_mode="Markdown"
+        )
+    else:
+        await callback.message.edit_text(
+            "❌ *Вы не приняли условия.*\n\n"
+            "К сожалению, без согласия с правилами мы не можем принять заказ.\n"
+            "Если передумаете, нажмите /start",
+            parse_mode="Markdown"
+        )
+        await state.clear()
+    await callback.answer()
 
 @dp.message(F.text == "❌ Отмена")
 async def cancel_order(message: types.Message, state: FSMContext):
@@ -176,6 +258,27 @@ async def get_contact(message: types.Message, state: FSMContext):
             contact = f"Telegram ID: {message.from_user.id}"
     
     await state.update_data(contact=contact)
+    await state.set_state(OrderForm.delivery)
+    await message.answer(
+        "🔹 *Как получить готовый заказ?*\n\n"
+        "Выберите способ получения:",
+        reply_markup=delivery_kb,
+        parse_mode="Markdown"
+    )
+
+@dp.message(OrderForm.delivery)
+async def get_delivery(message: types.Message, state: FSMContext):
+    if "Самовывоз" in message.text:
+        delivery = "🚗 Самовывоз (адрес сообщу после оплаты)"
+    elif "Почтой" in message.text:
+        delivery = "📦 Отправка Почтой России (доставка за счет клиента)"
+    elif "СДЭК" in message.text:
+        delivery = "🚚 Отправка СДЭК (доставка за счет клиента)"
+    else:
+        await message.answer("❌ Пожалуйста, выберите способ получения из кнопок")
+        return
+    
+    await state.update_data(delivery=delivery)
     await state.set_state(OrderForm.model_type)
     await message.answer(
         "🔹 *У вас есть готовая модель?*\n\n"
@@ -192,6 +295,8 @@ async def get_model_type(message: types.Message, state: FSMContext):
         await message.answer(
             "📁 *Отправьте файл модели*\n\n"
             "Поддерживаемые форматы: STL, OBJ, 3MF\n\n"
+            "⚠️ *Важно:* Перед отправкой проверьте модель на ошибки!\n"
+            "Исполнитель не гарантирует качество печати при геометрических ошибках в файле.\n\n"
             "📌 Можно отправить несколько файлов.\n"
             "Когда закончите, напишите *готово*",
             reply_markup=cancel_kb,
@@ -206,7 +311,8 @@ async def get_model_type(message: types.Message, state: FSMContext):
             "• Назначение детали\n"
             "• Примерные размеры\n"
             "• Особенности формы\n\n"
-            "Чем подробнее описание, тем точнее будет результат!",
+            "Чем подробнее описание, тем точнее будет результат!\n\n"
+            "💰 Стоимость дизайна обсуждается индивидуально.",
             reply_markup=cancel_kb,
             parse_mode="Markdown"
         )
@@ -254,8 +360,9 @@ async def get_files(message: types.Message, state: FSMContext):
             "📝 *Опишите пожелания по печати:*\n\n"
             "• Материал (PLA, ABS, PETG, смола)\n"
             "• Цвет\n"
-            "• Качество печати\n"
-            "• Сроки\n\n"
+            "• Качество печати (черновая/стандартная/высокая)\n"
+            "• Сроки\n"
+            "• Особые требования\n\n"
             "Напишите все, что считаете важным:",
             reply_markup=cancel_kb,
             parse_mode="Markdown"
@@ -279,10 +386,12 @@ async def get_description(message: types.Message, state: FSMContext):
         "full_name": message.from_user.full_name,
         "name": user_data["name"],
         "contact": user_data["contact"],
+        "delivery": user_data["delivery"],
         "model_type": user_data["model_type"],
         "files": user_data.get("files", []),
         "description": user_data["description"],
         "status": "new",
+        "legal_accepted": True,
         "created_at": str(message.date)
     }
     
@@ -293,7 +402,8 @@ async def get_description(message: types.Message, state: FSMContext):
     await message.answer(
         "✅ *Заявка успешно отправлена!*\n\n"
         "Я передал её оператору.\n"
-        "Статус заявки можно проверить командой /status",
+        "Статус заявки можно проверить командой /status\n\n"
+        "📜 Напоминаем: работа начинается только после 100% предоплаты.",
         reply_markup=main_menu,
         parse_mode="Markdown"
     )
@@ -313,18 +423,23 @@ async def notify_admin(order: dict, user_id: int):
         f"👤 *Клиент:* {order['name']}\n"
         f"🆔 *Telegram ID:* {user_id}\n"
         f"📱 *Username:* @{order['username'] or 'Нет'}\n"
-        f"📞 *Контакт:* {order['contact']}\n\n"
+        f"📞 *Контакт:* {order['contact']}\n"
+        f"🚚 *Доставка:* {order['delivery']}\n\n"
         f"🖨️ *Тип:* {model_type_text}\n\n"
         f"📝 *Пожелания:*\n{order['description']}\n"
+        f"\n📜 *Правила приняты:* ✅ Да\n"
+        f"💰 *Оплата:* 100% предоплата\n"
     )
     
     if order["files"]:
         text += f"\n📁 *Файлов:* {len(order['files'])} шт.\n"
     
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="💬 Написать клиенту", url=f"tg://user?id={user_id}")],
-        [types.InlineKeyboardButton(text="✅ Принять", callback_data=f"accept_{user_id}"),
-         types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{user_id}")]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Написать клиенту", url=f"tg://user?id={user_id}")],
+        [InlineKeyboardButton(text="✅ Принять", callback_data=f"accept_{user_id}"),
+         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{user_id}")],
+        [InlineKeyboardButton(text="🔄 В работу", callback_data=f"progress_{user_id}"),
+         InlineKeyboardButton(text="📦 Готово", callback_data=f"ready_{user_id}")]
     ])
     
     await bot.send_message(ADMIN_ID, text, parse_mode="Markdown", reply_markup=kb)
@@ -345,45 +460,31 @@ async def handle_admin_actions(callback: types.CallbackQuery):
     user_id = int(user_id)
     orders = load_orders()
     
-    if action == "accept":
-        if str(user_id) in orders:
-            orders[str(user_id)]["status"] = "accepted"
-            save_orders(orders)
-            
-            await bot.send_message(
-                user_id,
-                "✅ *Ваша заявка принята!*\n\n"
-                "Скоро с вами свяжется оператор.",
-                parse_mode="Markdown"
-            )
-            
-            await callback.message.edit_text(
-                callback.message.text + "\n\n✅ ЗАЯВКА ПРИНЯТА"
-            )
-            await callback.answer("✅ Заявка принята")
+    status_messages = {
+        "accept": ("accepted", "✅ *Ваша заявка принята!*\n\nСкоро с вами свяжется оператор для уточнения деталей и оплаты.\n\n💰 Напоминаем: работа начинается после 100% предоплаты.", "✅ ЗАЯВКА ПРИНЯТА"),
+        "reject": ("rejected", "❌ *Ваша заявка отклонена.*\n\nВозможные причины:\n• Неподходящая геометрия модели\n• Превышение максимальных размеров\n• Невозможность изготовления\n\nВы можете оставить новую заявку через /start", "❌ ЗАЯВКА ОТКЛОНЕНА"),
+        "progress": ("in_progress", "🔄 *Ваш заказ в работе!*\n\nМы уже начали подготовку к печати.\nО готовности сообщим дополнительно.", "🔄 ЗАКАЗ В РАБОТЕ"),
+        "ready": ("ready", "📦 *Заказ готов!*\n\nВаша модель напечатана и ожидает выдачи.\nСвяжитесь с оператором для уточнения способа получения и оплаты оставшейся части (если требуется).", "📦 ЗАКАЗ ГОТОВ")
+    }
     
-    elif action == "reject":
+    if action in status_messages:
+        status, client_msg, admin_msg = status_messages[action]
         if str(user_id) in orders:
-            orders[str(user_id)]["status"] = "rejected"
+            orders[str(user_id)]["status"] = status
             save_orders(orders)
             
-            await bot.send_message(
-                user_id,
-                "❌ *Ваша заявка отклонена.*\n\n"
-                "Вы можете оставить новую заявку через /start",
-                parse_mode="Markdown"
-            )
-            
-            await callback.message.edit_text(
-                callback.message.text + "\n\n❌ ЗАЯВКА ОТКЛОНЕНА"
-            )
-            await callback.answer("❌ Заявка отклонена")
+            await bot.send_message(user_id, client_msg, parse_mode="Markdown")
+            await callback.message.edit_text(callback.message.text + f"\n\n{admin_msg}")
+            await callback.answer(f"{admin_msg}")
+        else:
+            await callback.answer("❌ Заявка не найдена")
 
 # ========== ЗАПУСК ==========
 async def main():
     print("🚀 Бот запускается...")
     print(f"🤖 Bot token: {TOKEN[:10]}...")
     print(f"👑 Admin ID: {ADMIN_ID}")
+    print("📜 Юридические правила загружены")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
