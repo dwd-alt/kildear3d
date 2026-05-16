@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Kildear3D | 3D печать от игрушек до запчастей на Bambu Lab A1 Mini</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at 10% 20%, #0a1928, #030c17);
+            color: #eef4ff;
+            scroll-behavior: smooth;
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        header {
+            background: rgba(8, 20, 35, 0.95);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid #ffb34760;
+        }
+
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 0;
+            flex-wrap: wrap;
+        }
+
+        .logo {
+            font-size: 1.9rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #FFD966, #FF9833, #5DC9FF);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .logo i {
+            color: #FFB347;
+            margin-right: 6px;
+        }
+
+        .nav-links a {
+            margin-left: 28px;
+            text-decoration: none;
+            font-weight: 600;
+            color: #d6e6ff;
+            transition: 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: #FFC857;
+        }
+
+        .hero {
+            padding: 60px 0 40px;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 3.2rem;
+            font-weight: 800;
+            background: linear-gradient(125deg, #FFE6B0, #FFB347, #6AC9FF);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            color: #bfd9ff;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .quality-badge {
+            background: linear-gradient(95deg, #F6A800, #FF8C42);
+            border-radius: 60px;
+            padding: 12px 28px;
+            display: inline-block;
+            font-weight: bold;
+            color: #1e2a2f;
+            margin: 30px 0 10px;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 50px 0 30px;
+            display: inline-block;
+            color: #FFE5B4;
+            position: relative;
+        }
+
+        .section-title:after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 0;
+            width: 70px;
+            height: 4px;
+            background: #FFB347;
+            border-radius: 4px;
+        }
+
+        .services-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 25px;
+            justify-content: center;
+            margin-top: 30px;
+            margin-bottom: 40px;
+        }
+
+        .service-card {
+            background: rgba(255,255,245,0.08);
+            backdrop-filter: blur(4px);
+            border-radius: 28px;
+            padding: 28px 20px;
+            width: 220px;
+            text-align: center;
+            transition: all 0.3s;
+            border: 1px solid rgba(255,200,100,0.3);
+        }
+
+        .service-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255,210,120,0.15);
+            border-color: #FFB347;
+        }
+
+        .service-icon {
+            font-size: 2.5rem;
+            color: #FFB347;
+            margin-bottom: 15px;
+        }
+
+        .service-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #FFE2A4;
+            margin-bottom: 10px;
+        }
+
+        .service-desc {
+            font-size: 0.85rem;
+            color: #cce4ff;
+        }
+
+        .plastics-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 25px;
+            justify-content: center;
+            margin-bottom: 40px;
+        }
+
+        .plastic-card {
+            background: rgba(255,255,245,0.08);
+            backdrop-filter: blur(4px);
+            border-radius: 28px;
+            padding: 24px 20px;
+            width: 180px;
+            text-align: center;
+            transition: all 0.3s;
+            border: 1px solid rgba(255,200,100,0.3);
+            cursor: pointer;
+        }
+
+        .plastic-card:hover, .plastic-card.selected {
+            transform: translateY(-8px);
+            background: rgba(255,210,120,0.15);
+            border-color: #FFB347;
+        }
+
+        .plastic-card.selected {
+            border-width: 2px;
+            box-shadow: 0 0 15px rgba(255,180,70,0.3);
+        }
+
+        .plastic-name {
+            font-weight: 800;
+            font-size: 1.3rem;
+            color: #FFE2A4;
+        }
+
+        .plastic-color {
+            font-size: 0.9rem;
+            color: #cce4ff;
+            margin-top: 8px;
+        }
+
+        .plastic-stock {
+            font-size: 0.75rem;
+            margin-top: 8px;
+            padding: 4px 8px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+
+        .in-stock {
+            background: rgba(34,197,94,0.2);
+            color: #4ade80;
+        }
+
+        .out-of-stock {
+            background: rgba(239,68,68,0.2);
+            color: #f87171;
+        }
+
+        .printer-showcase {
+            background: linear-gradient(135deg, rgba(25, 45, 70, 0.8), rgba(15, 30, 50, 0.9));
+            backdrop-filter: blur(8px);
+            border-radius: 48px;
+            padding: 30px;
+            margin: 50px 0;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 40px;
+            border: 1px solid rgba(255,180,70,0.4);
+        }
+
+        .printer-img {
+            flex: 1;
+            text-align: center;
+        }
+
+        .printer-img img {
+            max-width: 100%;
+            border-radius: 32px;
+            border: 2px solid #ffb347aa;
+        }
+
+        .printer-info {
+            flex: 1;
+        }
+
+        .printer-info h3 {
+            font-size: 1.9rem;
+            color: #FFDEA5;
+            margin-bottom: 15px;
+        }
+
+        .price-badge {
+            background: #00000066;
+            backdrop-filter: blur(4px);
+            border: 1px solid #FFB347;
+            padding: 12px 24px;
+            border-radius: 60px;
+            display: inline-block;
+            margin: 20px 0;
+        }
+
+        .price-badge span {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #FFC857;
+        }
+
+        .form-card {
+            background: rgba(20, 35, 55, 0.85);
+            backdrop-filter: blur(8px);
+            border-radius: 40px;
+            padding: 40px;
+            margin: 40px 0;
+            border: 1px solid rgba(255,180,70,0.4);
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        label {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 8px;
+            color: #FFE2B5;
+        }
+
+        input, textarea, select {
+            width: 100%;
+            padding: 14px 18px;
+            border-radius: 28px;
+            border: 1.5px solid #3a5670;
+            background: #0f1e2c;
+            color: #fff3e0;
+            font-family: 'Inter', sans-serif;
+            font-size: 16px;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            border-color: #FFB347;
+            outline: none;
+        }
+
+        .btn-submit {
+            background: linear-gradient(95deg, #F6A800, #FF8C42);
+            border: none;
+            color: #1e2a2f;
+            font-weight: 800;
+            padding: 16px 30px;
+            border-radius: 44px;
+            width: 100%;
+            cursor: pointer;
+            font-size: 1.1rem;
+            transition: 0.2s;
+        }
+
+        .btn-submit:hover {
+            transform: scale(0.98);
+        }
+
+        .btn-submit:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .legal-box {
+            background: rgba(0,0,0,0.5);
+            border-radius: 24px;
+            padding: 20px;
+            margin: 20px 0;
+            border-left: 5px solid #FFB347;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            margin-bottom: 12px;
+        }
+
+        .checkbox-label input {
+            width: 20px;
+            height: 20px;
+            accent-color: #FFB347;
+            margin: 0;
+        }
+
+        .legal-links {
+            margin-top: 15px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .legal-links a {
+            color: #FFB347;
+            text-decoration: none;
+        }
+
+        .legal-links a:hover {
+            text-decoration: underline;
+        }
+
+        .contact-block {
+            background: rgba(10, 25, 40, 0.75);
+            backdrop-filter: blur(8px);
+            border-radius: 28px;
+            padding: 24px;
+            margin: 30px 0;
+            text-align: center;
+            border: 1px solid rgba(255,180,70,0.5);
+        }
+
+        .contact-row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 28px;
+            margin-top: 18px;
+        }
+
+        .contact-item {
+            background: #132433cc;
+            padding: 12px 24px;
+            border-radius: 60px;
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            border: 1px solid #FFB34770;
+        }
+
+        .contact-item i {
+            color: #FFB347;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px;
+            border-top: 1px solid #2A4660;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e2f3c;
+            padding: 12px 24px;
+            border-radius: 50px;
+            border-left: 4px solid #FFB347;
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: #0f1e2c;
+            border-radius: 32px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 30px;
+            border: 1px solid #FFB347;
+            position: relative;
+        }
+
+        .modal-content h2 {
+            color: #FFD966;
+            margin-bottom: 20px;
+        }
+
+        .modal-content h3 {
+            color: #FFB347;
+            margin: 20px 0 10px;
+        }
+
+        .modal-content p, .modal-content li {
+            color: #cce4ff;
+            line-height: 1.6;
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 28px;
+            cursor: pointer;
+            color: #FFB347;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid #ffb34730;
+            border-radius: 50%;
+            border-top-color: #FFB347;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 700px) {
+            .navbar { flex-direction: column; gap: 12px; }
+            .hero h1 { font-size: 2rem; }
+            .service-card { width: 160px; padding: 20px; }
+            .form-card { padding: 24px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="container">
+        <div class="navbar">
+            <div class="logo"><i class="fas fa-cube"></i> Kildear3D</div>
+            <div class="nav-links">
+                <a href="#services">Услуги</a>
+                <a href="#plastiki">Пластики</a>
+                <a href="#printer">Принтер</a>
+                <a href="#order">Заказать</a>
+                <a href="#contacts">Контакты</a>
+            </div>
+        </div>
+    </div>
+</header>
+
+<main class="container">
+    <div class="hero">
+        <h1>Kildear3D — 3D печать<br>от игрушек до запчастей</h1>
+        <p>Качественные 3D модели на Bambu Lab A1 Mini. <strong>Минимальная цена 150₽</strong>. PLA / ABS, яркие цвета. <strong>Лучшее качество печати</strong> — каждая деталь проработана до мелочей!</p>
+        <div class="quality-badge"><i class="fas fa-medal"></i> Гарантия высокого качества</div>
+    </div>
+
+    <!-- Услуги -->
+    <div id="services">
+        <h2 class="section-title">🛠️ Что я печатаю</h2>
+        <div class="services-grid">
+            <div class="service-card">
+                <div class="service-icon"><i class="fas fa-robot"></i></div>
+                <div class="service-title">Фигурки и миниатюры</div>
+                <div class="service-desc">Персонажи из игр, аниме, настолки</div>
+            </div>
+            <div class="service-card">
+                <div class="service-icon"><i class="fas fa-car"></i></div>
+                <div class="service-title">Запчасти для авто</div>
+                <div class="service-desc">Клипсы, заглушки, держатели</div>
+            </div>
+            <div class="service-card">
+                <div class="service-icon"><i class="fas fa-home"></i></div>
+                <div class="service-title">Для дома и быта</div>
+                <div class="service-desc">Кронштейны, органайзеры</div>
+            </div>
+            <div class="service-card">
+                <div class="service-icon"><i class="fas fa-dragon"></i></div>
+                <div class="service-title">Игрушки и сувениры</div>
+                <div class="service-desc">Индивидуальные подарки, брелоки</div>
+            </div>
+            <div class="service-card">
+                <div class="service-icon"><i class="fas fa-microchip"></i></div>
+                <div class="service-title">Прототипирование</div>
+                <div class="service-desc">Макеты, корпуса для электроники</div>
+            </div>
+            <div class="service-card">
+                <div class="service-icon"><i class="fas fa-cogs"></i></div>
+                <div class="service-title">Постобработка</div>
+                <div class="service-desc">Шлифовка, грунтовка, покраска</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Пластики -->
+    <div id="plastiki">
+        <h2 class="section-title">🎨 Пластики и цвета</h2>
+        <div id="plasticsContainer" class="plastics-grid">
+            <div style="text-align: center; width: 100%;">
+                <div class="loading-spinner"></div> Загрузка пластиков...
+            </div>
+        </div>
+        <p style="margin-top: -10px; font-size:0.9rem; color:#b9d0ff;">
+            <i class="fas fa-info-circle"></i> Нажмите на пластик для выбора. Доступны и другие цвета по запросу!
+        </p>
+    </div>
+
+    <!-- Принтер -->
+    <div id="printer">
+        <div class="printer-showcase">
+            <div class="printer-img">
+                <img src="https://avatars.mds.yandex.net/get-mpic/1707869/2a00000194dedc54c5db429c3fc270f3227e/orig" alt="Bambu Lab A1 Mini" onerror="this.src='https://placehold.co/400x300/1E2F3F/FFB347?text=Bambu+A1+Mini'">
+            </div>
+            <div class="printer-info">
+                <h3><i class="fas fa-print"></i> Bambu Lab A1 Mini</h3>
+                <p>Высокоточный 3D принтер с автоматической калибровкой. Печатаю слой от 0.05 мм — идеальная детализация для фигурок, прототипов и функциональных деталей.</p>
+                <div class="price-badge"><span>от 150 ₽</span> / модель</div>
+                <p><i class="fas fa-check-circle" style="color:#FFB347;"></i> Точность и качество — мой приоритет!</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Форма заказа -->
+    <div id="order">
+        <h2 class="section-title">📝 Заявка на печать</h2>
+        <div class="form-card">
+            <form id="orderForm">
+                <div class="form-group">
+                    <label>Название модели *</label>
+                    <input type="text" id="modelName" required placeholder="Например: Фигурка дракона, Кронштейн для полки...">
+                </div>
+                <div class="form-group">
+                    <label>Имя заказчика *</label>
+                    <input type="text" id="customerName" required placeholder="Иван Иванов">
+                </div>
+                <div class="form-group">
+                    <label>Связь (тел/telegram) *</label>
+                    <input type="text" id="contactInfo" required placeholder="@username или +7...">
+                </div>
+                <div class="form-group">
+                    <label>Пластик / цвет</label>
+                    <select id="plasticSelect">
+                        <option value="">Выберите пластик из списка выше</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Ссылка на модель (Google Drive, Thingiverse и т.д.)</label>
+                    <input type="url" id="modelLink" placeholder="https://...">
+                    <div class="note-text" style="font-size:12px; color:#aac8ff; margin-top:5px;">Или пришлите файл в Telegram @Rom4ik1904</div>
+                </div>
+                <div class="form-group">
+                    <label>Требования / если нет модели — описание идеи</label>
+                    <textarea id="requirements" rows="3" placeholder="Опишите что нужно напечатать: размеры, цвет, масштаб, нужна ли постобработка..."></textarea>
+                </div>
+
+                <!-- Юридические согласия -->
+                <div class="legal-box">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="agreePersonal" required>
+                        <span>Я соглашаюсь на <strong>обработку персональных данных</strong> (имя, контакты) для выполнения заказа.</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="agreeWarranty" required>
+                        <span>Я принимаю условия: <strong>Kildear3D не несёт гарантии</strong> после передачи/отправки готовой модели.</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="agreeTerms" required>
+                        <span>Я ознакомлен(а) и согласен(на) с <strong><a href="#" id="showPrivacyLink">Политикой конфиденциальности</a></strong> и <strong><a href="#" id="showOfferLink">Публичной офертой</a></strong>.</span>
+                    </label>
+                    <div class="legal-links">
+                        <a href="#" id="showPrivacyModal">📋 Политика конфиденциальности</a> |
+                        <a href="#" id="showOfferModal">📜 Публичная оферта</a>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-submit"><i class="fas fa-paper-plane"></i> Отправить заявку</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Контакты -->
+    <div id="contacts">
+        <div class="contact-block">
+            <h3><i class="fas fa-address-card"></i> Контакты Kildear3D</h3>
+            <div class="contact-row">
+                <div class="contact-item"><i class="fab fa-telegram"></i> @Rom4ik1904</div>
+                <div class="contact-item"><i class="fas fa-phone-alt"></i> +7 963 521 30 13</div>
+                <div class="contact-item"><i class="fab fa-cc-visa"></i> Карта 2202 2068 6307 6027</div>
+            </div>
+            <p style="margin-top: 18px;">📌 Пишите в Telegram или звоните — отвечаю быстро! Оплата на карту после согласования заказа.</p>
+        </div>
+    </div>
+</main>
+
+<footer>
+    <p>© 2025 Kildear3D — 3D печать на Bambu Lab A1 Mini. Печатаю любые модели: игрушки, фигурки, запчасти, прототипы. Минимальный заказ 150₽.</p>
+</footer>
+
+<!-- Модальное окно: Политика конфиденциальности -->
+<div id="privacyModal" class="modal">
+    <div class="modal-content">
+        <span class="close-modal" onclick="closeModal('privacyModal')">&times;</span>
+        <h2>🔒 Политика конфиденциальности Kildear3D</h2>
+        <p><strong>Дата последнего обновления:</strong> 16 мая 2025 г.</p>
+        <h3>1. Общие положения</h3>
+        <p>Настоящая Политика конфиденциальности регулирует порядок обработки и защиты персональных данных пользователей сайта Kildear3D.</p>
+        <h3>2. Какие данные мы собираем</h3>
+        <ul>
+            <li>Имя и фамилия — для персонализации общения и оформления заказа;</li>
+            <li>Контактные данные (телефон, Telegram, email) — для связи по вопросам заказа;</li>
+            <li>Файлы моделей (STL, 3MF и др.) — для выполнения 3D печати;</li>
+            <li>IP-адрес и данные браузера — для технического обеспечения работы сайта.</li>
+        </ul>
+        <h3>3. Цели обработки данных</h3>
+        <ul>
+            <li>Обработка и выполнение ваших заказов на 3D печать;</li>
+            <li>Связь с вами для уточнения деталей заказа;</li>
+            <li>Информирование о статусе выполнения заказа.</li>
+        </ul>
+        <h3>4. Защита данных</h3>
+        <p>Ваши данные хранятся в защищенной базе данных. Доступ к персональным данным имеют только уполномоченные сотрудники Kildear3D.</p>
+        <h3>5. Передача данных третьим лицам</h3>
+        <p>Мы НЕ передаем ваши персональные данные третьим лицам, за исключением случаев, предусмотренных законодательством.</p>
+        <h3>6. Срок хранения данных</h3>
+        <p>Ваши данные хранятся в течение 3 лет с момента последнего взаимодействия.</p>
+        <h3>7. Контактная информация</h3>
+        <ul>
+            <li><strong>Telegram:</strong> @Rom4ik1904</li>
+            <li><strong>Телефон:</strong> +7 963 521 30 13</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Модальное окно: Публичная оферта -->
+<div id="offerModal" class="modal">
+    <div class="modal-content">
+        <span class="close-modal" onclick="closeModal('offerModal')">&times;</span>
+        <h2>📜 Публичная оферта Kildear3D</h2>
+        <h3>1. Общие положения</h3>
+        <p>Настоящий документ является официальной публичной офертой Исполнителя (Kildear3D) любому физическому лицу (Заказчику) заключить договор на оказание услуг по 3D печати.</p>
+        <h3>2. Предмет договора</h3>
+        <p>Исполнитель обязуется оказать услуги по 3D печати моделей, предоставленных Заказчиком или разработанных по требованию Заказчика.</p>
+        <h3>3. Стоимость и оплата</h3>
+        <ul>
+            <li>Минимальная стоимость заказа — 150 рублей;</li>
+            <li>Стоимость рассчитывается индивидуально исходя из сложности, времени печати и расхода пластика;</li>
+            <li>Оплата производится на карту 2202 2068 6307 6027 после согласования заказа.</li>
+        </ul>
+        <h3>4. Гарантии и ответственность</h3>
+        <ul>
+            <li>Исполнитель гарантирует качество 3D печати (отсутствие брака, связанного с работой принтера);</li>
+            <li><strong>Исполнитель НЕ несёт ответственности</strong> за некорректную геометрию моделей, предоставленных Заказчиком;</li>
+            <li><strong>Претензии по качеству принимаются ТОЛЬКО до момента передачи/отправки готового изделия.</strong></li>
+            <li>После передачи/отправки изделие считается принятым без претензий.</li>
+        </ul>
+        <h3>5. Сроки выполнения</h3>
+        <p>Сроки выполнения заказа согласовываются индивидуально. Обычный срок изготовления: от 1 до 7 рабочих дней.</p>
+        <h3>6. Контакты</h3>
+        <ul>
+            <li><strong>Telegram:</strong> @Rom4ik1904</li>
+            <li><strong>Телефон:</strong> +7 963 521 30 13</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+    let selectedPlasticValue = null;
+
+    // Закрытие модальных окон
+    function closeModal(modalId) {
+        document.getElementById(modalId).style.display = 'none';
+    }
+
+    // Показать уведомление
+    function showToast(message, isError = false) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.style.borderLeftColor = isError ? '#ef4444' : '#22c55e';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    // Загрузка пластиков с сервера
+    async function loadPlastics() {
+        try {
+            const response = await fetch('/api/plastics');
+            if (!response.ok) throw new Error('Ошибка загрузки');
+            const plastics = await response.json();
+
+            const container = document.getElementById('plasticsContainer');
+            const select = document.getElementById('plasticSelect');
+
+            if (!plastics || plastics.length === 0) {
+                container.innerHTML = '<div style="text-align:center;width:100%;">😢 Нет доступных пластиков</div>';
+                return;
+            }
+
+            // Отображение карточек пластиков
+            container.innerHTML = plastics.map(p => `
+                <div class="plastic-card" onclick="selectPlastic('${p.display_name.replace(/'/g, "\\'")}', ${p.id})">
+                    <div class="plastic-name">${escapeHtml(p.name)}</div>
+                    <div class="plastic-color">${escapeHtml(p.color)}</div>
+                    <div class="plastic-stock ${p.in_stock ? 'in-stock' : 'out-of-stock'}">
+                        ${p.in_stock ? '✅ В наличии' : '❌ Нет в наличии'}
+                    </div>
+                    <div style="font-size:0.75rem; margin-top:5px;">${p.price_per_gram} ₽/гр</div>
+                </div>
+            `).join('');
+
+            // Заполнение выпадающего списка
+            select.innerHTML = '<option value="">Выберите пластик из списка выше</option>' +
+                plastics.filter(p => p.in_stock).map(p =>
+                    `<option value="${escapeHtml(p.display_name)}">${escapeHtml(p.display_name)} (${p.price_per_gram} ₽/гр)</option>`
+                ).join('');
+
+        } catch (error) {
+            console.error('Ошибка загрузки пластиков:', error);
+            document.getElementById('plasticsContainer').innerHTML = '<div style="text-align:center;width:100%;color:#ff6b6b;">❌ Ошибка загрузки пластиков. Проверьте соединение с сервером.</div>';
+            showToast('Ошибка загрузки пластиков', true);
+        }
+    }
+
+    // Выбор пластика
+    function selectPlastic(name, id) {
+        selectedPlasticValue = name;
+        document.getElementById('plasticSelect').value = name;
+
+        // Подсветка выбранной карточки
+        document.querySelectorAll('.plastic-card').forEach(card => {
+            card.classList.remove('selected');
+        });
+        event.currentTarget.classList.add('selected');
+
+        showToast(`Выбран: ${name}`, false);
+    }
+
+    // Отправка заказа
+    async function sendOrder(e) {
+        e.preventDefault();
+
+        // Проверка согласий
+        const agreePersonal = document.getElementById('agreePersonal').checked;
+        const agreeWarranty = document.getElementById('agreeWarranty').checked;
+        const agreeTerms = document.getElementById('agreeTerms').checked;
+
+        if (!agreePersonal || !agreeWarranty || !agreeTerms) {
+            showToast('❌ Необходимо принять все условия: обработку данных, отказ от гарантии и согласие с офертой', true);
+            return;
+        }
+
+        // Сбор данных
+        const modelName = document.getElementById('modelName').value.trim();
+        const customerName = document.getElementById('customerName').value.trim();
+        const contactInfo = document.getElementById('contactInfo').value.trim();
+        const plastic = document.getElementById('plasticSelect').value;
+        const modelLink = document.getElementById('modelLink').value.trim();
+        const requirements = document.getElementById('requirements').value.trim();
+
+        // Валидация
+        if (!modelName || !customerName || !contactInfo) {
+            showToast('❌ Заполните название модели, имя и контакты', true);
+            return;
+        }
+
+        if (!plastic) {
+            showToast('❌ Выберите пластик из списка', true);
+            return;
+        }
+
+        // Отправка
+        const btn = e.target.closest('button');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-pulse"></i> Отправка...';
+
+        try {
+            const response = await fetch('/api/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    modelName, customerName, contactInfo, plastic, modelLink, requirements
+                })
+            });
+
+            if (response.ok) {
+                showToast('✅ Заявка успешно отправлена! Я свяжусь с вами.');
+                document.getElementById('orderForm').reset();
+                selectedPlasticValue = null;
+                document.querySelectorAll('.plastic-card').forEach(card => card.classList.remove('selected'));
+            } else {
+                const error = await response.json();
+                throw new Error(error.error || 'Ошибка сервера');
+            }
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showToast('❌ ' + error.message, true);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+
+    // Экранирование HTML    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Модальные окна
+    document.getElementById('showPrivacyLink')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('privacyModal').style.display = 'flex';
+    });
+    document.getElementById('showPrivacyModal')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('privacyModal').style.display = 'flex';
+    });
+    document.getElementById('showOfferLink')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('offerModal').style.display = 'flex';
+    });
+    document.getElementById('showOfferModal')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('offerModal').style.display = 'flex';
+    });
+
+    // Закрытие модальных окон по клику вне
+    window.addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal')) {
+            e.target.style.display = 'none';
+        }
+    });
+
+    // Навигация
+    document.querySelectorAll('.nav-links a').forEach(anchor => {
+        anchor.addEventListener('click', function(e) {
+            const href = this.getAttribute('href');
+            if (href && href.startsWith('#')) {
+                e.preventDefault();
+                const target = document.querySelector(href);
+                if (target) target.scrollIntoView({ behavior: 'smooth' });
+            }
+        });
+    });
+
+    // Инициализация
+    document.getElementById('orderForm').addEventListener('submit', sendOrder);
+    loadPlastics();
+</script>
+</body>
+</html>
