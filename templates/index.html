@@ -489,6 +489,12 @@
             to { transform: rotate(360deg); }
         }
 
+        .note-text {
+            font-size: 12px;
+            color: #aac8ff;
+            margin-top: 5px;
+        }
+
         @media (max-width: 700px) {
             .navbar { flex-direction: column; gap: 12px; }
             .hero h1 { font-size: 2rem; }
@@ -612,7 +618,7 @@
                 <div class="form-group">
                     <label>Ссылка на модель (Google Drive, Thingiverse и т.д.)</label>
                     <input type="url" id="modelLink" placeholder="https://...">
-                    <div class="note-text" style="font-size:12px; color:#aac8ff; margin-top:5px;">Или пришлите файл в Telegram @Rom4ik1904</div>
+                    <div class="note-text">Или пришлите файл в Telegram @Rom4ik1904</div>
                 </div>
                 <div class="form-group">
                     <label>Требования / если нет модели — описание идеи</label>
@@ -662,7 +668,7 @@
     <p>© 2025 Kildear3D — 3D печать на Bambu Lab A1 Mini. Печатаю любые модели: игрушки, фигурки, запчасти, прототипы. Минимальный заказ 150₽.</p>
 </footer>
 
-<!-- Модальное окно: Политика конфиденциальности -->
+<!-- Модальные окна -->
 <div id="privacyModal" class="modal">
     <div class="modal-content">
         <span class="close-modal" onclick="closeModal('privacyModal')">&times;</span>
@@ -697,7 +703,6 @@
     </div>
 </div>
 
-<!-- Модальное окно: Публичная оферта -->
 <div id="offerModal" class="modal">
     <div class="modal-content">
         <span class="close-modal" onclick="closeModal('offerModal')">&times;</span>
@@ -730,41 +735,55 @@
 </div>
 
 <script>
-    let selectedPlasticValue = null;
-
-    // Закрытие модальных окон
+    // Функции для модальных окон
     function closeModal(modalId) {
         document.getElementById(modalId).style.display = 'none';
     }
-
-    // Показать уведомление
+    
+    function showModal(modalId) {
+        document.getElementById(modalId).style.display = 'flex';
+    }
+    
     function showToast(message, isError = false) {
         const toast = document.createElement('div');
         toast.className = 'toast';
         toast.style.borderLeftColor = isError ? '#ef4444' : '#22c55e';
-        toast.textContent = message;
+        toast.innerHTML = `<i class="fas ${isError ? 'fa-exclamation-triangle' : 'fa-check-circle'}"></i> ${message}`;
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), 3000);
     }
-
-    // Загрузка пластиков с сервера
+    
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Загрузка пластиков
     async function loadPlastics() {
         try {
+            console.log('Загрузка пластиков...');
             const response = await fetch('/api/plastics');
-            if (!response.ok) throw new Error('Ошибка загрузки');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
             const plastics = await response.json();
-
+            console.log('Получено пластиков:', plastics.length);
+            
             const container = document.getElementById('plasticsContainer');
             const select = document.getElementById('plasticSelect');
-
+            
             if (!plastics || plastics.length === 0) {
                 container.innerHTML = '<div style="text-align:center;width:100%;">😢 Нет доступных пластиков</div>';
                 return;
             }
-
+            
             // Отображение карточек пластиков
             container.innerHTML = plastics.map(p => `
-                <div class="plastic-card" onclick="selectPlastic('${p.display_name.replace(/'/g, "\\'")}', ${p.id})">
+                <div class="plastic-card" onclick="selectPlastic('${escapeHtml(p.display_name)}')">
                     <div class="plastic-name">${escapeHtml(p.name)}</div>
                     <div class="plastic-color">${escapeHtml(p.color)}</div>
                     <div class="plastic-stock ${p.in_stock ? 'in-stock' : 'out-of-stock'}">
@@ -773,48 +792,56 @@
                     <div style="font-size:0.75rem; margin-top:5px;">${p.price_per_gram} ₽/гр</div>
                 </div>
             `).join('');
-
+            
             // Заполнение выпадающего списка
-            select.innerHTML = '<option value="">Выберите пластик из списка выше</option>' +
-                plastics.filter(p => p.in_stock).map(p =>
+            select.innerHTML = '<option value="">Выберите пластик из списка выше</option>' + 
+                plastics.filter(p => p.in_stock).map(p => 
                     `<option value="${escapeHtml(p.display_name)}">${escapeHtml(p.display_name)} (${p.price_per_gram} ₽/гр)</option>`
                 ).join('');
-
+                
+            showToast(`Загружено ${plastics.length} пластиков`);
+            
         } catch (error) {
             console.error('Ошибка загрузки пластиков:', error);
-            document.getElementById('plasticsContainer').innerHTML = '<div style="text-align:center;width:100%;color:#ff6b6b;">❌ Ошибка загрузки пластиков. Проверьте соединение с сервером.</div>';
+            document.getElementById('plasticsContainer').innerHTML = `
+                <div style="text-align:center;width:100%;color:#ff6b6b;">
+                    ❌ Ошибка загрузки пластиков<br>
+                    <small>${error.message}</small>
+                </div>
+            `;
             showToast('Ошибка загрузки пластиков', true);
         }
     }
-
+    
     // Выбор пластика
-    function selectPlastic(name, id) {
-        selectedPlasticValue = name;
+    function selectPlastic(name) {
         document.getElementById('plasticSelect').value = name;
-
+        
         // Подсветка выбранной карточки
         document.querySelectorAll('.plastic-card').forEach(card => {
             card.classList.remove('selected');
+            if (card.querySelector('.plastic-name')?.innerText + ' ' + card.querySelector('.plastic-color')?.innerText === name) {
+                card.classList.add('selected');
+            }
         });
-        event.currentTarget.classList.add('selected');
-
-        showToast(`Выбран: ${name}`, false);
+        
+        showToast(`Выбран: ${name}`);
     }
-
+    
     // Отправка заказа
     async function sendOrder(e) {
         e.preventDefault();
-
+        
         // Проверка согласий
         const agreePersonal = document.getElementById('agreePersonal').checked;
         const agreeWarranty = document.getElementById('agreeWarranty').checked;
         const agreeTerms = document.getElementById('agreeTerms').checked;
-
+        
         if (!agreePersonal || !agreeWarranty || !agreeTerms) {
-            showToast('❌ Необходимо принять все условия: обработку данных, отказ от гарантии и согласие с офертой', true);
+            showToast('❌ Необходимо принять все условия', true);
             return;
         }
-
+        
         // Сбор данных
         const modelName = document.getElementById('modelName').value.trim();
         const customerName = document.getElementById('customerName').value.trim();
@@ -822,24 +849,24 @@
         const plastic = document.getElementById('plasticSelect').value;
         const modelLink = document.getElementById('modelLink').value.trim();
         const requirements = document.getElementById('requirements').value.trim();
-
+        
         // Валидация
         if (!modelName || !customerName || !contactInfo) {
             showToast('❌ Заполните название модели, имя и контакты', true);
             return;
         }
-
+        
         if (!plastic) {
             showToast('❌ Выберите пластик из списка', true);
             return;
         }
-
+        
         // Отправка
         const btn = e.target.closest('button');
         const originalText = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-pulse"></i> Отправка...';
-
+        
         try {
             const response = await fetch('/api/orders', {
                 method: 'POST',
@@ -848,15 +875,15 @@
                     modelName, customerName, contactInfo, plastic, modelLink, requirements
                 })
             });
-
-            if (response.ok) {
+            
+            const result = await response.json();
+            
+            if (response.ok && result.success) {
                 showToast('✅ Заявка успешно отправлена! Я свяжусь с вами.');
                 document.getElementById('orderForm').reset();
-                selectedPlasticValue = null;
                 document.querySelectorAll('.plastic-card').forEach(card => card.classList.remove('selected'));
             } else {
-                const error = await response.json();
-                throw new Error(error.error || 'Ошибка сервера');
+                throw new Error(result.error || 'Ошибка сервера');
             }
         } catch (error) {
             console.error('Ошибка:', error);
@@ -866,39 +893,7 @@
             btn.innerHTML = originalText;
         }
     }
-
-    // Экранирование HTML    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    // Модальные окна
-    document.getElementById('showPrivacyLink')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        document.getElementById('privacyModal').style.display = 'flex';
-    });
-    document.getElementById('showPrivacyModal')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        document.getElementById('privacyModal').style.display = 'flex';
-    });
-    document.getElementById('showOfferLink')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        document.getElementById('offerModal').style.display = 'flex';
-    });
-    document.getElementById('showOfferModal')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        document.getElementById('offerModal').style.display = 'flex';
-    });
-
-    // Закрытие модальных окон по клику вне
-    window.addEventListener('click', (e) => {
-        if (e.target.classList.contains('modal')) {
-            e.target.style.display = 'none';
-        }
-    });
-
+    
     // Навигация
     document.querySelectorAll('.nav-links a').forEach(anchor => {
         anchor.addEventListener('click', function(e) {
@@ -910,10 +905,37 @@
             }
         });
     });
-
+    
+    // Обработчики модальных окон
+    document.getElementById('showPrivacyLink')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showModal('privacyModal');
+    });
+    document.getElementById('showPrivacyModal')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showModal('privacyModal');
+    });
+    document.getElementById('showOfferLink')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showModal('offerModal');
+    });
+    document.getElementById('showOfferModal')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showModal('offerModal');
+    });
+    
+    // Закрытие модальных окон по клику вне
+    window.addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal')) {
+            e.target.style.display = 'none';
+        }
+    });
+    
     // Инициализация
     document.getElementById('orderForm').addEventListener('submit', sendOrder);
     loadPlastics();
+    
+    console.log('🚀 Сайт загружен');
 </script>
 </body>
 </html>
