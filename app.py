@@ -1,174 +1,288 @@
 import os
 import psycopg2
-from psycopg2.extras import RealDictCursor
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
+from flask import Flask, request, jsonify, session, redirect, url_for
 from flask_cors import CORS
 from functools import wraps
-import traceback
 
 app = Flask(__name__)
 app.secret_key = 'kildear3d_secret_key_2025'
-app.config['JSON_AS_ASCII'] = False
+CORS(app)
 
-# Включаем CORS для всех
-CORS(app, resources={r"/*": {"origins": "*"}})
-
-# Данные для подключения к PostgreSQL из вашего скриншота
-DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://kildear3d_user:2Tjwclw1l54A3cVndJoMunuNSPU5JBrw7adpg-d846ch8js32c739ktuvg-a/kildear3d')
+# Данные для подключения к PostgreSQL
+DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://kildear3d_user:21fjwc1a154A3cVndJoMunNSPU5JBrw7@dpg-d846ch8jsi32c739ktugv-a.singapore-postgres.render.com/kildear3d')
 
 ADMIN_USERNAME = 'admin'
 ADMIN_PASSWORD = 'kildear3d2025'
 
-def get_db_connection():
-    """Получение соединения с PostgreSQL"""
+def get_db():
+    """Подключение к БД"""
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         return conn
     except Exception as e:
-        print(f"Ошибка подключения к БД: {e}")
+        print(f"Ошибка подключения: {e}")
         return None
 
 def init_db():
-    """Создание таблицы если не существует"""
-    try:
-        conn = get_db_connection()
-        if conn:
-            cur = conn.cursor()
-            cur.execute('''
-                CREATE TABLE IF NOT EXISTS orders (
-                    id SERIAL PRIMARY KEY,
-                    model_name TEXT NOT NULL,
-                    customer_name TEXT NOT NULL,
-                    contact_info TEXT NOT NULL,
-                    plastic TEXT,
-                    model_link TEXT,
-                    requirements TEXT,
-                    timestamp TEXT,
-                    status TEXT DEFAULT 'new'
-                )
-            ''')
-            conn.commit()
-            cur.close()
-            conn.close()
-            print("✅ База данных PostgreSQL подключена и готова")
-            return True
-        else:
-            print("❌ Не удалось подключиться к БД")
-            return False
-    except Exception as e:
-        print(f"❌ Ошибка инициализации БД: {e}")
-        return False
+    """Создание таблицы"""
+    conn = get_db()
+    if conn:
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS orders (
+                id SERIAL PRIMARY KEY,
+                model_name TEXT NOT NULL,
+                customer_name TEXT NOT NULL,
+                contact_info TEXT NOT NULL,
+                plastic TEXT,
+                model_link TEXT,
+                requirements TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'new'
+            )
+        ''')
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("✅ База данных готова")
+        return True
+    return False
 
-# Инициализируем БД
 init_db()
 
 def login_required(f):
     @wraps(f)
-    def decorated_function(*args, **kwargs):
+    def decorated(*args, **kwargs):
         if not session.get('admin_logged_in'):
             return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
-    return decorated_function
+    return decorated
 
-# ============ МАРШРУТЫ ============
+# ============ ОСНОВНЫЕ МАРШРУТЫ ============
 
 @app.route('/')
 def index():
-    """Главная страница"""
-    try:
-        with open('index.html', 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head><title>Kildear3D</title></head>
-        <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1>🚀 Kildear3D Сервер работает!</h1>
-            <p>API доступен по адресу: <a href="/api/health">/api/health</a></p>
-            <p>Админ-панель: <a href="/admin/login">/admin/login</a></p>
-        </body>
-        </html>
-        """
+    return '''
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <title>Kildear3D - 3D печать</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: Arial, sans-serif;
+                background: linear-gradient(135deg, #0a1928, #030c17);
+                min-height: 100vh;
+                padding: 20px;
+            }
+            .container {
+                max-width: 500px;
+                margin: 0 auto;
+                background: rgba(20,35,55,0.95);
+                padding: 30px;
+                border-radius: 20px;
+                border: 1px solid #ffb347;
+            }
+            h1 { color: #FFD966; text-align: center; margin-bottom: 20px; }
+            input, select, textarea {
+                width: 100%;
+                padding: 12px;
+                margin: 10px 0;
+                border-radius: 8px;
+                border: 1px solid #3a5670;
+                background: #0f1e2c;
+                color: white;
+                font-size: 14px;
+            }
+            button {
+                width: 100%;
+                padding: 14px;
+                background: #ffb347;
+                border: none;
+                border-radius: 8px;
+                font-weight: bold;
+                cursor: pointer;
+                margin-top: 20px;
+                font-size: 16px;
+            }
+            button:hover { background: #ff9f2e; }
+            button:disabled { opacity: 0.7; cursor: not-allowed; }
+            .checkbox {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 10px 0;
+            }
+            .checkbox input { width: auto; margin: 0; }
+            .toast {
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                padding: 12px 24px;
+                border-radius: 8px;
+                display: none;
+                z-index: 1000;
+            }
+            .success { background: #27ae60; color: white; }
+            .error { background: #e74c3c; color: white; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📝 Заказ 3D печати</h1>
+            <form id="orderForm">
+                <input type="text" id="modelName" placeholder="Название модели *" required>
+                <input type="text" id="customerName" placeholder="Ваше имя *" required>
+                <input type="text" id="contactInfo" placeholder="Telegram или телефон *" required>
+                
+                <select id="plastic">
+                    <option>PLA белый</option>
+                    <option>PLA черный</option>
+                    <option>PLA красный</option>
+                    <option>PLA зеленый</option>
+                    <option>ABS желтый</option>
+                </select>
+                
+                <input type="url" id="modelLink" placeholder="Ссылка на модель">
+                <textarea id="requirements" rows="3" placeholder="Требования / описание"></textarea>
+                
+                <div class="checkbox">
+                    <input type="checkbox" id="agreeData" required>
+                    <label>Согласен на обработку персональных данных</label>
+                </div>
+                <div class="checkbox">
+                    <input type="checkbox" id="agreeTerms" required>
+                    <label>Принимаю условия заказа</label>
+                </div>
+                
+                <button type="submit">📤 Отправить заявку</button>
+            </form>
+        </div>
+        <div id="toast" class="toast"></div>
+
+        <script>
+            const form = document.getElementById('orderForm');
+            const toast = document.getElementById('toast');
+            
+            function showToast(text, isError = false) {
+                toast.textContent = text;
+                toast.className = `toast ${isError ? 'error' : 'success'}`;
+                toast.style.display = 'block';
+                setTimeout(() => {
+                    toast.style.display = 'none';
+                }, 3000);
+            }
+            
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                if (!document.getElementById('agreeData').checked) {
+                    showToast('❌ Подтвердите согласие на обработку данных', true);
+                    return;
+                }
+                if (!document.getElementById('agreeTerms').checked) {
+                    showToast('❌ Примите условия заказа', true);
+                    return;
+                }
+                
+                const data = {
+                    modelName: document.getElementById('modelName').value.trim(),
+                    customerName: document.getElementById('customerName').value.trim(),
+                    contactInfo: document.getElementById('contactInfo').value.trim(),
+                    plastic: document.getElementById('plastic').value,
+                    modelLink: document.getElementById('modelLink').value.trim(),
+                    requirements: document.getElementById('requirements').value.trim()
+                };
+                
+                if (!data.modelName || !data.customerName || !data.contactInfo) {
+                    showToast('❌ Заполните все обязательные поля', true);
+                    return;
+                }
+                
+                const button = form.querySelector('button');
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '⏳ Отправка...';
+                
+                try {
+                    const response = await fetch('/api/orders', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        showToast('✅ Заявка успешно отправлена! Я свяжусь с вами');
+                        form.reset();
+                    } else {
+                        showToast('❌ ' + (result.error || 'Ошибка при отправке'), true);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    showToast('❌ Ошибка соединения с сервером', true);
+                } finally {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                }
+            });
+            
+            // Проверка API
+            fetch('/api/health')
+                .then(res => res.json())
+                .then(data => console.log('✅ API работает:', data))
+                .catch(err => console.error('❌ API ошибка:', err));
+        </script>
+    </body>
+    </html>
+    '''
 
 @app.route('/api/health', methods=['GET'])
-def health_check():
-    """Проверка работоспособности"""
-    try:
-        conn = get_db_connection()
-        if conn:
-            cur = conn.cursor()
-            cur.execute('SELECT COUNT(*) FROM orders')
-            count = cur.fetchone()[0]
-            cur.close()
-            conn.close()
-            return jsonify({
-                'status': 'ok',
-                'database': 'connected',
-                'orders_count': count,
-                'timestamp': datetime.now().isoformat()
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'database': 'disconnected',
-                'timestamp': datetime.now().isoformat()
-            }), 500
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
+def health():
+    return jsonify({
+        'status': 'ok',
+        'timestamp': datetime.now().isoformat()
+    })
 
-@app.route('/api/orders', methods=['POST', 'OPTIONS'])
+@app.route('/api/orders', methods=['POST'])
 def create_order():
-    """Создание заказа"""
-    if request.method == 'OPTIONS':
-        return '', 200
-    
     try:
-        print("=" * 50)
-        print(f"📥 Получен POST запрос")
-        
-        # Получаем JSON данные
-        data = request.get_json(silent=True)
+        data = request.get_json()
         
         if not data:
-            print("❌ Нет JSON данных")
-            return jsonify({'success': False, 'error': 'No JSON data provided'}), 200
-        
-        print(f"📦 Данные: {data}")
+            return jsonify({'success': False, 'error': 'Нет данных'}), 400
         
         # Валидация
         if not data.get('modelName'):
-            return jsonify({'success': False, 'error': 'modelName is required'}), 200
+            return jsonify({'success': False, 'error': 'Укажите название модели'}), 400
         if not data.get('customerName'):
-            return jsonify({'success': False, 'error': 'customerName is required'}), 200
+            return jsonify({'success': False, 'error': 'Укажите ваше имя'}), 400
         if not data.get('contactInfo'):
-            return jsonify({'success': False, 'error': 'contactInfo is required'}), 200
+            return jsonify({'success': False, 'error': 'Укажите контакты'}), 400
         
-        # Сохраняем в базу
-        conn = get_db_connection()
+        # Сохраняем в БД
+        conn = get_db()
         if not conn:
-            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+            return jsonify({'success': False, 'error': 'Ошибка подключения к БД'}), 500
         
         cur = conn.cursor()
         cur.execute('''
-            INSERT INTO orders 
-            (model_name, customer_name, contact_info, plastic, model_link, requirements, timestamp, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO orders (model_name, customer_name, contact_info, plastic, model_link, requirements)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id
         ''', (
             data['modelName'],
             data['customerName'],
             data['contactInfo'],
-            data.get('plastic', 'PLA белый'),
+            data.get('plastic', 'Не указан'),
             data.get('modelLink', ''),
-            data.get('requirements', ''),
-            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'new'
+            data.get('requirements', '')
         ))
         
         order_id = cur.fetchone()[0]
@@ -176,50 +290,48 @@ def create_order():
         cur.close()
         conn.close()
         
-        print(f"✅ Заказ #{order_id} успешно создан!")
+        print(f"✅ Заказ #{order_id} создан - {data['customerName']}")
         
         return jsonify({
             'success': True,
             'id': order_id,
-            'message': 'Заявка успешно отправлена!'
+            'message': 'Заявка создана'
         }), 201
         
     except Exception as e:
-        print(f"❌ Ошибка: {traceback.format_exc()}")
+        print(f"Ошибка: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
-    """Получение списка заказов"""
     try:
-        conn = get_db_connection()
+        conn = get_db()
         if not conn:
             return jsonify([]), 200
         
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = conn.cursor()
         cur.execute('SELECT * FROM orders ORDER BY id DESC')
-        orders = cur.fetchall()
+        rows = cur.fetchall()
         cur.close()
         conn.close()
         
-        # Преобразуем для JSON
-        result = []
-        for order in orders:
-            result.append({
-                'id': order['id'],
-                'model_name': order['model_name'],
-                'customer_name': order['customer_name'],
-                'contact_info': order['contact_info'],
-                'plastic': order['plastic'],
-                'model_link': order['model_link'],
-                'requirements': order['requirements'],
-                'timestamp': order['timestamp'],
-                'status': order['status']
+        orders = []
+        for row in rows:
+            orders.append({
+                'id': row[0],
+                'model_name': row[1],
+                'customer_name': row[2],
+                'contact_info': row[3],
+                'plastic': row[4],
+                'model_link': row[5],
+                'requirements': row[6],
+                'created_at': row[7],
+                'status': row[8]
             })
         
-        return jsonify(result), 200
+        return jsonify(orders), 200
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        print(f"Ошибка: {e}")
         return jsonify([]), 200
 
 # ============ АДМИН-ПАНЕЛЬ ============
@@ -233,30 +345,26 @@ def admin_login():
             session['admin_logged_in'] = True
             return redirect(url_for('admin_dashboard'))
         return '''
-        <!DOCTYPE html>
         <html>
-        <head><title>Вход</title></head>
         <body style="font-family: Arial; text-align: center; padding: 50px;">
             <form method="POST" style="max-width: 300px; margin: 0 auto;">
-                <h1>🔐 Вход в админку</h1>
-                <input name="username" placeholder="Логин" style="width:100%; padding:10px; margin:10px 0;"><br>
-                <input name="password" type="password" placeholder="Пароль" style="width:100%; padding:10px; margin:10px 0;"><br>
-                <button type="submit" style="padding:10px 20px;">Войти</button>
+                <h2>Вход в админку</h2>
+                <input name="username" placeholder="Логин" style="width:100%; padding:10px; margin:10px 0;">
+                <input name="password" type="password" placeholder="Пароль" style="width:100%; padding:10px; margin:10px 0;">
+                <button type="submit">Войти</button>
                 <p style="color:red;">Неверные данные</p>
             </form>
         </body>
         </html>
         '''
     return '''
-    <!DOCTYPE html>
     <html>
-    <head><title>Вход</title></head>
     <body style="font-family: Arial; text-align: center; padding: 50px;">
         <form method="POST" style="max-width: 300px; margin: 0 auto;">
-            <h1>🔐 Вход в админку Kildear3D</h1>
-            <input name="username" placeholder="Логин" style="width:100%; padding:10px; margin:10px 0;"><br>
-            <input name="password" type="password" placeholder="Пароль" style="width:100%; padding:10px; margin:10px 0;"><br>
-            <button type="submit" style="padding:10px 20px; background: #ffb347; border: none; cursor: pointer;">Войти</button>
+            <h2>🔐 Вход в админку</h2>
+            <input name="username" placeholder="Логин" style="width:100%; padding:10px; margin:10px 0;">
+            <input name="password" type="password" placeholder="Пароль" style="width:100%; padding:10px; margin:10px 0;">
+            <button type="submit">Войти</button>
         </form>
     </body>
     </html>
@@ -270,15 +378,14 @@ def admin_logout():
 @app.route('/admin')
 @login_required
 def admin_dashboard():
-    """Админ-панель"""
     try:
-        conn = get_db_connection()
+        conn = get_db()
         if not conn:
             return "Ошибка подключения к БД", 500
         
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = conn.cursor()
         cur.execute('SELECT * FROM orders ORDER BY id DESC')
-        orders = cur.fetchall()
+        rows = cur.fetchall()
         cur.close()
         conn.close()
         
@@ -288,21 +395,17 @@ def admin_dashboard():
         <head>
             <title>Админ-панель Kildear3D</title>
             <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                body { font-family: Arial, sans-serif; background: #f5f5f5; }
-                .header { background: #2c3e50; color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
-                .container { max-width: 1200px; margin: 20px auto; padding: 20px; background: white; border-radius: 10px; }
-                table { width: 100%; border-collapse: collapse; }
+                body { font-family: Arial; background: #f5f5f5; margin: 0; padding: 20px; }
+                .header { background: #2c3e50; color: white; padding: 20px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+                table { width: 100%; background: white; border-collapse: collapse; }
                 th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
                 th { background: #34495e; color: white; }
                 tr:hover { background: #f9f9f9; }
                 .status { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
                 .status-new { background: #e74c3c; color: white; }
-                .status-processing { background: #f39c12; color: white; }
-                .status-completed { background: #27ae60; color: white; }
                 .logout { background: #e74c3c; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }
-                .stat { display: inline-block; margin: 10px; padding: 15px; background: #ecf0f1; border-radius: 5px; }
-                .stat-number { font-size: 24px; font-weight: bold; color: #2c3e50; }
+                .stats { display: flex; gap: 20px; margin-bottom: 20px; }
+                .stat { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
             </style>
         </head>
         <body>
@@ -310,50 +413,26 @@ def admin_dashboard():
                 <h1>📋 Kildear3D Админ-панель</h1>
                 <a href="/admin/logout" class="logout">🚪 Выход</a>
             </div>
-            <div class="container">
-                <div class="stat">
-                    <div class="stat-number">''' + str(len(orders)) + '''</div>
-                    <div>Всего заказов</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">''' + str(len([o for o in orders if o['status'] == 'new'])) + '''</div>
-                    <div>Новых</div>
-                </div>
-                
-                <h2 style="margin: 20px 0;">Список заказов</h2>
+            <div class="stats">
+                <div class="stat"><strong>Всего заказов:</strong> ''' + str(len(rows)) + '''</div>
+            </div>
+            <div style="overflow-x: auto;">
                 <table>
                     <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Модель</th>
-                            <th>Заказчик</th>
-                            <th>Контакты</th>
-                            <th>Пластик</th>
-                            <th>Статус</th>
-                            <th>Дата</th>
-                        </tr>
+                        <tr><th>ID</th><th>Модель</th><th>Заказчик</th><th>Контакты</th><th>Пластик</th><th>Дата</th></tr>
                     </thead>
                     <tbody>
         '''
         
-        for order in orders:
-            status_class = f"status-{order['status']}"
-            status_text = {
-                'new': 'Новая',
-                'processing': 'В работе',
-                'completed': 'Завершена',
-                'cancelled': 'Отменена'
-            }.get(order['status'], order['status'])
-            
+        for row in rows:
             html += f'''
                 <tr>
-                    <td>{order['id']}</td>
-                    <td>{order['model_name'][:50]}</td>
-                    <td>{order['customer_name']}</td>
-                    <td>{order['contact_info']}</td>
-                    <td>{order['plastic']}</td>
-                    <td><span class="status {status_class}">{status_text}</span></td>
-                    <td>{order['timestamp']}</td>
+                    <td>{row[0]}</td>
+                    <td>{row[1][:50]}</td>
+                    <td>{row[2]}</td>
+                    <td>{row[3]}</td>
+                    <td>{row[4]}</td>
+                    <td>{row[7]}</td>
                 </tr>
             '''
         
@@ -361,25 +440,21 @@ def admin_dashboard():
                     </tbody>
                 </table>
             </div>
-            <script>
-                setInterval(() => location.reload(), 30000);
-            </script>
         </body>
         </html>
         '''
         return html
         
     except Exception as e:
-        return f"<h1>Ошибка</h1><pre>{traceback.format_exc()}</pre>", 500
+        return f"Ошибка: {e}", 500
 
-# ============ ЗАПУСК ============
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print("=" * 60)
-    print("🚀 Kildear3D Сервер запущен!")
+    print("🚀 Kildear3D сервер запущен!")
     print(f"🌐 Сайт: https://kildear3d.onrender.com")
     print(f"🔐 Админка: https://kildear3d.onrender.com/admin/login")
-    print(f"📡 API Health: https://kildear3d.onrender.com/api/health")
+    print(f"📡 API: https://kildear3d.onrender.com/api/health")
     print(f"👤 Логин: {ADMIN_USERNAME}")
     print(f"🔑 Пароль: {ADMIN_PASSWORD}")
     print("=" * 60)
