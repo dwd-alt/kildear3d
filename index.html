@@ -194,6 +194,12 @@
             border-color: #FFB347;
         }
 
+        .plastic-card.selected {
+            border-color: #FFB347;
+            background: rgba(255,180,70,0.2);
+            box-shadow: 0 0 15px rgba(255,180,70,0.3);
+        }
+
         .plastic-icon {
             font-size: 3rem;
             color: #FFD966;
@@ -209,6 +215,24 @@
             font-size: 0.9rem;
             color: #cce4ff;
             margin-top: 8px;
+        }
+
+        .plastic-stock {
+            font-size: 0.75rem;
+            margin-top: 8px;
+            padding: 4px 8px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+
+        .in-stock {
+            background: rgba(34,197,94,0.2);
+            color: #4ade80;
+        }
+
+        .out-of-stock {
+            background: rgba(239,68,68,0.2);
+            color: #f87171;
         }
 
         .printer-showcase {
@@ -488,6 +512,20 @@
             color: #FFD966;
         }
 
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         @media (max-width: 700px) {
             .navbar {
                 flex-direction: column;
@@ -568,37 +606,13 @@
         <p style="text-align: center; margin-top: 20px; color: #FFD966;"><i class="fas fa-star"></i> Работаю с любыми 3D моделями — от простых до самых сложных! <i class="fas fa-star"></i></p>
     </div>
 
-    <!-- Блок ПЛАСТИКИ -->
+    <!-- Блок ПЛАСТИКИ (динамическая загрузка) -->
     <div id="plastiki">
         <h2 class="section-title">🎨 Пластики и цвета</h2>
-        <div class="plastics-grid">
-            <div class="plastic-card">
-                <div class="plastic-icon"><i class="fas fa-palette"></i></div>
-                <div class="plastic-name">PLA</div>
-                <div class="plastic-color">⚪ Белый</div>
-            </div>
-            <div class="plastic-card">
-                <div class="plastic-icon"><i class="fas fa-palette"></i></div>
-                <div class="plastic-name">PLA</div>
-                <div class="plastic-color">⚫ Черный</div>
-            </div>
-            <div class="plastic-card">
-                <div class="plastic-icon"><i class="fas fa-leaf"></i></div>
-                <div class="plastic-name">PLA</div>
-                <div class="plastic-color">🟢 Зеленый</div>
-            </div>
-            <div class="plastic-card">
-                <div class="plastic-icon"><i class="fas fa-heart"></i></div>
-                <div class="plastic-name">PLA</div>
-                <div class="plastic-color">🔴 Красный</div>
-            </div>
-            <div class="plastic-card">
-                <div class="plastic-icon"><i class="fas fa-industry"></i></div>
-                <div class="plastic-name">ABS</div>
-                <div class="plastic-color">🟡 Желтый</div>
-            </div>
+        <div id="plasticsContainer" class="plastics-grid">
+            <div style="text-align: center; width: 100%;"><div class="loading-spinner"></div> Загрузка пластиков...</div>
         </div>
-        <p style="margin-top: -10px; font-size:0.9rem; color:#b9d0ff;"><i class="fas fa-info-circle"></i> Возможны другие цвета по запросу! PLA — экологичный пластик, ABS — ударопрочный.</p>
+        <p style="margin-top: -10px; font-size:0.9rem; color:#b9d0ff;"><i class="fas fa-info-circle"></i> Нажмите на пластик для выбора в форме. Возможны другие цвета по запросу!</p>
     </div>
 
     <!-- Блок ПРИНТЕР -->
@@ -636,11 +650,7 @@
                 <div class="form-group">
                     <label>Пластик / цвет</label>
                     <select id="plasticChoice">
-                        <option>PLA белый</option>
-                        <option>PLA черный</option>
-                        <option>PLA зеленый</option>
-                        <option>PLA красный</option>
-                        <option>ABS желтый</option>
+                        <option value="">Выберите пластик из списка выше</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -698,7 +708,7 @@
 
 <div id="toastMsg" class="toast-msg">✅ Заявка отправлена!</div>
 
-<!-- Модальное окно: Политика конфиденциальности -->
+<!-- Модальные окна -->
 <div id="privacyModal" class="modal">
     <div class="modal-content">
         <span class="close-modal">&times;</span>
@@ -733,7 +743,6 @@
     </div>
 </div>
 
-<!-- Модальное окно: Публичная оферта -->
 <div id="offerModal" class="modal">
     <div class="modal-content">
         <span class="close-modal">&times;</span>
@@ -766,8 +775,13 @@
 </div>
 
 <script>
-    // URL для API
+    // API URL
     const API_URL = '/api/orders';
+    const PLASTICS_API_URL = '/api/plastics';
+    
+    // Глобальная переменная для хранения пластиков
+    let plasticsList = [];
+    let selectedPlasticId = null;
 
     // DOM элементы
     const form = document.getElementById('printOrderForm');
@@ -775,15 +789,81 @@
     const agreePersonal = document.getElementById('agreePersonal');
     const agreeWarranty = document.getElementById('agreeWarranty');
     const agreeTerms = document.getElementById('agreeTerms');
+    const plasticSelect = document.getElementById('plasticChoice');
+    const plasticsContainer = document.getElementById('plasticsContainer');
 
     let isSubmitting = false;
+
+    // Загрузка пластиков с сервера
+    async function loadPlastics() {
+        try {
+            const response = await fetch(PLASTICS_API_URL);
+            if (!response.ok) throw new Error('Ошибка загрузки пластиков');
+            plasticsList = await response.json();
+            renderPlastics();
+            updatePlasticSelect();
+        } catch (error) {
+            console.error('Ошибка:', error);
+            plasticsContainer.innerHTML = '<div style="text-align: center; width: 100%; color: #ff6b6b;">❌ Ошибка загрузки пластиков</div>';
+        }
+    }
+
+    // Отображение пластиков в виде карточек
+    function renderPlastics() {
+        if (!plasticsList || plasticsList.length === 0) {
+            plasticsContainer.innerHTML = '<div style="text-align: center; width: 100%;">😢 Пластики временно недоступны</div>';
+            return;
+        }
+
+        plasticsContainer.innerHTML = plasticsList.map(plastic => `
+            <div class="plastic-card ${selectedPlasticId === plastic.id ? 'selected' : ''}" 
+                 onclick="selectPlastic(${plastic.id}, '${escapeHtml(plastic.display_name || plastic.name + ' ' + plastic.color)}')"
+                 data-id="${plastic.id}">
+                <div class="plastic-icon"><i class="${plastic.icon || 'fas fa-palette'}"></i></div>
+                <div class="plastic-name">${escapeHtml(plastic.name)}</div>
+                <div class="plastic-color">${escapeHtml(plastic.color)}</div>
+                <div class="plastic-stock ${plastic.in_stock ? 'in-stock' : 'out-of-stock'}">
+                    ${plastic.in_stock ? '✅ В наличии' : '❌ Нет в наличии'}
+                </div>
+                ${plastic.price_per_gram ? `<div class="note-text" style="margin-top: 5px;">${plastic.price_per_gram} ₽/гр</div>` : ''}
+            </div>
+        `).join('');
+    }
+
+    // Выбор пластика
+    function selectPlastic(id, displayName) {
+        selectedPlasticId = id;
+        renderPlastics();
+        
+        // Обновляем select
+        if (plasticSelect) {
+            plasticSelect.value = displayName;
+        }
+        
+        showToast(`Выбран: ${displayName}`, false);
+    }
+
+    // Обновление выпадающего списка
+    function updatePlasticSelect() {
+        if (!plasticSelect) return;
+        
+        plasticSelect.innerHTML = '<option value="">Выберите пластик из списка выше</option>';
+        plasticsList.forEach(plastic => {
+            if (plastic.in_stock) {
+                const option = document.createElement('option');
+                option.value = plastic.display_name || `${plastic.name} ${plastic.color}`;
+                option.textContent = `${plastic.name} ${plastic.color} ${plastic.price_per_gram ? `(${plastic.price_per_gram} ₽/гр)` : ''}`;
+                plasticSelect.appendChild(option);
+            }
+        });
+    }
 
     // Модальные окна
     const privacyModal = document.getElementById('privacyModal');
     const offerModal = document.getElementById('offerModal');
 
     function showModal(modal) {
-        modal.style.display = 'flex';
+        if (modal) modal.style.display = 'flex';
     }
 
     document.getElementById('showPrivacyLink')?.addEventListener('click', (e) => {
@@ -805,14 +885,14 @@
 
     document.querySelectorAll('.close-modal').forEach(btn => {
         btn.addEventListener('click', () => {
-            privacyModal.style.display = 'none';
-            offerModal.style.display = 'none';
+            if (privacyModal) privacyModal.style.display = 'none';
+            if (offerModal) offerModal.style.display = 'none';
         });
     });
 
     window.addEventListener('click', (e) => {
-        if (e.target === privacyModal) privacyModal.style.display = 'none';
-        if (e.target === offerModal) offerModal.style.display = 'none';
+        if (e.target === privacyModal && privacyModal) privacyModal.style.display = 'none';
+        if (e.target === offerModal && offerModal) offerModal.style.display = 'none';
     });
 
     function showToast(message, isError = false) {
@@ -842,7 +922,9 @@
     }
 
     function resetFormFields() {
-        form.reset();
+        form?.reset();
+        selectedPlasticId = null;
+        renderPlastics();
         if (agreePersonal) agreePersonal.checked = false;
         if (agreeWarranty) agreeWarranty.checked = false;
         if (agreeTerms) agreeTerms.checked = false;
@@ -862,12 +944,17 @@
             const modelName = document.getElementById('modelName')?.value.trim();
             const customerName = document.getElementById('customerName')?.value.trim();
             const contactInfo = document.getElementById('contactInfo')?.value.trim();
-            const plastic = document.getElementById('plasticChoice')?.value;
+            const plastic = plasticSelect?.value;
             const modelLink = document.getElementById('modelLink')?.value.trim() || null;
             const requirements = document.getElementById('requirements')?.value.trim() || null;
 
             if (!modelName || !customerName || !contactInfo) {
                 showToast('❌ Заполните название модели, имя и контакты', true);
+                return;
+            }
+
+            if (!plastic) {
+                showToast('❌ Выберите пластик из списка выше', true);
                 return;
             }
 
@@ -921,23 +1008,37 @@
     // Анимация появления
     const animateElements = document.querySelectorAll('.plastic-card, .printer-showcase, .form-card, .contact-block, .service-card');
     animateElements.forEach(el => {
-        el.style.opacity = '0';
-        el.style.transform = 'translateY(30px)';
-        el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+        if (el) {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(30px)';
+            el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+        }
     });
 
     const animateOnScroll = () => {
         animateElements.forEach(el => {
-            const rect = el.getBoundingClientRect();
-            if (rect.top < window.innerHeight - 100) {
-                el.style.opacity = '1';
-                el.style.transform = 'translateY(0)';
+            if (el) {
+                const rect = el.getBoundingClientRect();
+                if (rect.top < window.innerHeight - 100) {
+                    el.style.opacity = '1';
+                    el.style.transform = 'translateY(0)';
+                }
             }
         });
     };
 
     window.addEventListener('scroll', animateOnScroll);
-    window.addEventListener('load', animateOnScroll);
+    window.addEventListener('load', () => {
+        animateOnScroll();
+        loadPlastics();
+    });
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
 
     console.log('🚀 Kildear3D сайт загружен!');
     console.log('📡 API endpoint:', API_URL);
