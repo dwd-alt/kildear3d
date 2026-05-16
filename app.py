@@ -4,41 +4,55 @@ from datetime import datetime
 from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
 from flask_cors import CORS
 from functools import wraps
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = 'kildear3d_secret_key_2025'
-CORS(app)
+app.secret_key = os.environ.get('SECRET_KEY', 'kildear3d_secret_key_2025')
+app.config['JSON_AS_ASCII'] = False
 
-DB_PATH = 'orders.db'
+# Настройка CORS для Render
+CORS(app, origins=[
+    'https://*.onrender.com',
+    'http://localhost:5000',
+    'http://127.0.0.1:5000'
+])
 
-ADMIN_USERNAME = 'admin'
-ADMIN_PASSWORD = 'kildear3d2025'
+DB_PATH = '/tmp/orders.db'  # Важно! Render использует /tmp для записи
 
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'kildear3d2025')
 
 # Инициализация базы данных
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            model_name TEXT,
-            customer_name TEXT,
-            contact_info TEXT,
-            plastic TEXT,
-            model_link TEXT,
-            requirements TEXT,
-            timestamp TEXT,
-            status TEXT DEFAULT 'new'
-        )
-    ''')
-    conn.commit()
-    conn.close()
-    print("✅ База данных инициализирована")
-
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model_name TEXT,
+                customer_name TEXT,
+                contact_info TEXT,
+                plastic TEXT,
+                model_link TEXT,
+                requirements TEXT,
+                timestamp TEXT,
+                status TEXT DEFAULT 'new'
+            )
+        ''')
+        conn.commit()
+        conn.close()
+        logger.info("✅ База данных инициализирована")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации БД: {e}")
+        return False
 
 init_db()
-
 
 # Декоратор для защиты админ-панели
 def login_required(f):
@@ -47,9 +61,7 @@ def login_required(f):
         if not session.get('admin_logged_in'):
             return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
-
     return decorated_function
-
 
 # ============ ОСНОВНЫЕ МАРШРУТЫ ============
 
@@ -58,26 +70,45 @@ def index():
     try:
         with open('index.html', 'r', encoding='utf-8') as f:
             return f.read()
-    except:
+    except FileNotFoundError:
         return "Файл index.html не найден", 404
-
+    except Exception as e:
+        logger.error(f"Ошибка загрузки index.html: {e}")
+        return "Ошибка сервера", 500
 
 # ============ API ДЛЯ ЗАЯВОК ============
 
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Проверка работоспособности"""
+    return jsonify({
+        'status': 'ok',
+        'time': datetime.now().isoformat(),
+        'database': os.path.exists(DB_PATH)
+    }), 200
+
 @app.route('/api/orders', methods=['POST'])
 def create_order():
+    """Создание нового заказа"""
     try:
-        data = request.json
-        print("Получены данные:", data)
-
+        # Проверяем Content-Type
+        if not request.is_json:
+            logger.warning("Не JSON запрос")
+            return jsonify({'error': 'Content-Type должен быть application/json'}), 415
+        
+        data = request.get_json()
+        if not data:
+            logger.warning("Пустые данные")
+            return jsonify({'error': 'Пустые данные'}), 400
+        
+        logger.info(f"Получены данные: {data}")
+        
         # Проверяем обязательные поля
-        if not data.get('modelName'):
-            return jsonify({'error': 'Укажите название модели'}), 400
-        if not data.get('customerName'):
-            return jsonify({'error': 'Укажите ваше имя'}), 400
-        if not data.get('contactInfo'):
-            return jsonify({'error': 'Укажите контактные данные'}), 400
-
+        required_fields = ['modelName', 'customerName', 'contactInfo']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'error': f'Поле {field} обязательно'}), 400
+        
         # Сохраняем в базу
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -97,38 +128,37 @@ def create_order():
         conn.commit()
         order_id = c.lastrowid
         conn.close()
-
-        print(f"✅ Заявка #{order_id} успешно создана!")
-        return jsonify({'success': True, 'id': order_id}), 201
-
+        
+        logger.info(f"✅ Заявка #{order_id} успешно создана!")
+        return jsonify({
+            'success': True,
+            'id': order_id,
+            'message': 'Заявка успешно создана'
+        }), 201
+        
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка БД: {e}")
+        return jsonify({'error': 'Ошибка базы данных'}), 500
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        logger.error(f"Ошибка: {e}")
         return jsonify({'error': str(e)}), 500
-
 
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT * FROM orders ORDER BY id DESC')
-    orders = c.fetchall()
-    conn.close()
-
-    result = []
-    for order in orders:
-        result.append({
-            'id': order[0],
-            'model_name': order[1],
-            'customer_name': order[2],
-            'contact_info': order[3],
-            'plastic': order[4],
-            'model_link': order[5],
-            'requirements': order[6],
-            'timestamp': order[7],
-            'status': order[8]
-        })
-    return jsonify(result)
-
+    """Получение списка заказов"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT * FROM orders ORDER BY id DESC')
+        rows = c.fetchall()
+        conn.close()
+        
+        orders = [dict(row) for row in rows]
+        return jsonify(orders), 200
+    except Exception as e:
+        logger.error(f"Ошибка получения заказов: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # ============ АДМИН-ПАНЕЛЬ ============
 
@@ -206,7 +236,7 @@ ADMIN_PAGE = '''
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; }
-        .header { background: #2c3e50; color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .header { background: #2c3e50; color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
         .header h1 { color: #FFD966; }
         .logout-btn { background: #e74c3c; padding: 10px 20px; border-radius: 8px; text-decoration: none; color: white; }
         .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
@@ -225,12 +255,16 @@ ADMIN_PAGE = '''
         .status-cancelled { background: #e74c3c; color: white; }
         .view-btn { background: #FFB347; color: #1e2a2f; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block; }
         .view-btn:hover { background: #ff9f2e; }
+        .refresh-btn { background: #3498db; color: white; padding: 8px 16px; border-radius: 8px; text-decoration: none; margin-left: 10px; }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>📋 Kildear3D — Админ-панель</h1>
-        <a href="/admin/logout" class="logout-btn">🚪 Выход</a>
+        <div>
+            <a href="/admin" class="refresh-btn">🔄 Обновить</a>
+            <a href="/admin/logout" class="logout-btn">🚪 Выход</a>
+        </div>
     </div>
     <div class="container">
         <div class="stats">
@@ -267,14 +301,13 @@ ADMIN_PAGE = '''
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="8" style="text-align: center;">Нет заявок</td>
+                            <td colspan="8" style="text-align: center; padding: 40px;">📭 Пока нет заявок</td>
                         </tr>
                     {% endif %}
                 </tbody>
             </table>
         </div>
     </div>
-    <script>setInterval(() => location.reload(), 30000);</script>
 </body>
 </html>
 '''
@@ -338,22 +371,25 @@ ORDER_PAGE = '''
     </div>
     <script>
         document.getElementById('statusSelect')?.addEventListener('change', async function() {
-            const response = await fetch(`/admin/order/${this.dataset.id}/status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: this.value })
-            });
-            if(response.ok) {
-                alert('✅ Статус обновлён!');
-            } else {
-                alert('❌ Ошибка при обновлении');
+            try {
+                const response = await fetch(`/admin/order/${this.dataset.id}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: this.value })
+                });
+                if(response.ok) {
+                    alert('✅ Статус обновлён!');
+                } else {
+                    alert('❌ Ошибка при обновлении');
+                }
+            } catch(e) {
+                alert('❌ Ошибка соединения');
             }
         });
     </script>
 </body>
 </html>
 '''
-
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -366,57 +402,61 @@ def admin_login():
         return render_template_string(LOGIN_PAGE, error='Неверные логин или пароль')
     return render_template_string(LOGIN_PAGE, error=None)
 
-
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('admin_logged_in', None)
     return redirect(url_for('admin_login'))
 
-
 @app.route('/admin')
 @login_required
 def admin_dashboard():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # Важно! Позволяет обращаться по именам колонок
-    c = conn.cursor()
-    c.execute(
-        'SELECT id, model_name, customer_name, contact_info, plastic, model_link, requirements, timestamp, status FROM orders ORDER BY id DESC')
-    rows = c.fetchall()
-    conn.close()
-
-    # Преобразуем Row в словари для удобства в шаблоне
-    orders = [dict(row) for row in rows]
-    return render_template_string(ADMIN_PAGE, orders=orders)
-
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT id, model_name, customer_name, contact_info, plastic, model_link, requirements, timestamp, status FROM orders ORDER BY id DESC')
+        rows = c.fetchall()
+        conn.close()
+        
+        orders = [dict(row) for row in rows]
+        return render_template_string(ADMIN_PAGE, orders=orders)
+    except Exception as e:
+        logger.error(f"Ошибка в админ-панели: {e}")
+        return f"Ошибка: {e}", 500
 
 @app.route('/admin/order/<int:order_id>')
 @login_required
 def view_order(order_id):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute('SELECT * FROM orders WHERE id = ?', (order_id,))
-    row = c.fetchone()
-    conn.close()
-    if not row:
-        return "Заявка не найдена", 404
-    order = dict(row)
-    return render_template_string(ORDER_PAGE, order=order)
-
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT * FROM orders WHERE id = ?', (order_id,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            return "Заявка не найдена", 404
+        order = dict(row)
+        return render_template_string(ORDER_PAGE, order=order)
+    except Exception as e:
+        logger.error(f"Ошибка просмотра заказа: {e}")
+        return f"Ошибка: {e}", 500
 
 @app.route('/admin/order/<int:order_id>/status', methods=['POST'])
 @login_required
 def update_status(order_id):
-    status = request.json.get('status')
-    if status not in ['new', 'processing', 'completed', 'cancelled']:
-        return jsonify({'error': 'Неверный статус'}), 400
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('UPDATE orders SET status = ? WHERE id = ?', (status, order_id))
-    conn.commit()
-    conn.close()
-    return jsonify({'status': 'ok'})
-
+    try:
+        status = request.json.get('status')
+        if status not in ['new', 'processing', 'completed', 'cancelled']:
+            return jsonify({'error': 'Неверный статус'}), 400
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('UPDATE orders SET status = ? WHERE id = ?', (status, order_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # ============ ЗАПУСК ============
 if __name__ == '__main__':
@@ -428,4 +468,4 @@ if __name__ == '__main__':
     print(f"🔑 Логин: {ADMIN_USERNAME}")
     print(f"🔐 Пароль: {ADMIN_PASSWORD}")
     print("=" * 50)
-    app.run(debug=True, host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)
