@@ -7,24 +7,17 @@ from functools import wraps
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'kildear3d-secret-key-2025'
 
-# Создаем папку instance
-instance_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
-if not os.path.exists(instance_path):
-    os.makedirs(instance_path)
-
-# Используем SQLite (проще для начала)
-db_path = os.path.join(instance_path, 'kildear3d.db')
+# Путь к базе данных
+db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'kildear3d.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-
-# ==================== МОДЕЛИ БАЗЫ ДАННЫХ ====================
+# ==================== МОДЕЛИ ====================
 
 class Order(db.Model):
     __tablename__ = 'orders'
-
     id = db.Column(db.Integer, primary_key=True)
     model_name = db.Column(db.String(255), nullable=False)
     customer_name = db.Column(db.String(255), nullable=False)
@@ -34,7 +27,7 @@ class Order(db.Model):
     requirements = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(50), default='new')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
+    
     def to_dict(self):
         return {
             'id': self.id,
@@ -48,17 +41,15 @@ class Order(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
-
 class Plastic(db.Model):
     __tablename__ = 'plastics'
-
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     color = db.Column(db.String(50), nullable=False)
     color_code = db.Column(db.String(20), nullable=True)
     price_per_gram = db.Column(db.Float, default=1.5)
     in_stock = db.Column(db.Boolean, default=True)
-
+    
     def to_dict(self):
         return {
             'id': self.id,
@@ -70,14 +61,11 @@ class Plastic(db.Model):
             'display_name': f"{self.name} {self.color}"
         }
 
-
 class Admin(db.Model):
     __tablename__ = 'admins'
-
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
-
 
 # ==================== АУТЕНТИФИКАЦИЯ ====================
 
@@ -87,16 +75,13 @@ def login_required(f):
         if not session.get('admin_logged_in'):
             return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
-
     return decorated_function
-
 
 # ==================== ОСНОВНЫЕ МАРШРУТЫ ====================
 
 @app.route('/')
 def index():
     return render_template('index.html')
-
 
 @app.route('/api/plastics', methods=['GET'])
 def get_plastics():
@@ -107,30 +92,29 @@ def get_plastics():
         print(f"Ошибка: {e}")
         return jsonify([]), 500
 
-
 @app.route('/api/orders', methods=['POST'])
 def create_order():
     try:
         data = request.get_json()
-
+        print(f"Получен заказ: {data}")
+        
         order = Order(
             model_name=data['modelName'],
             customer_name=data['customerName'],
             contact_info=data['contactInfo'],
             plastic=data['plastic'],
-            model_link=data.get('modelLink'),
-            requirements=data.get('requirements')
+            model_link=data.get('modelLink', ''),
+            requirements=data.get('requirements', '')
         )
-
+        
         db.session.add(order)
         db.session.commit()
-
+        
         return jsonify({'success': True, 'order_id': order.id})
     except Exception as e:
         db.session.rollback()
         print(f"Ошибка: {e}")
         return jsonify({'error': str(e)}), 500
-
 
 # ==================== АДМИН-ПАНЕЛЬ ====================
 
@@ -139,170 +123,128 @@ def admin_login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-
+        
         admin = Admin.query.filter_by(username=username, password=password).first()
         if admin:
             session['admin_logged_in'] = True
             session['admin_id'] = admin.id
             return redirect(url_for('admin_dashboard'))
         return render_template('admin_login.html', error='Неверный логин или пароль')
-
+    
     return render_template('admin_login.html')
-
 
 @app.route('/admin/logout')
 def admin_logout():
     session.clear()
     return redirect(url_for('admin_login'))
 
-
 @app.route('/admin')
 @login_required
 def admin_dashboard():
     return render_template('admin.html')
 
-
-# API для админ-панели
 @app.route('/api/admin/stats')
 @login_required
 def admin_stats():
-    try:
-        return jsonify({
-            'total_orders': Order.query.count(),
-            'new_orders': Order.query.filter_by(status='new').count(),
-            'in_progress_orders': Order.query.filter_by(status='in_progress').count(),
-            'completed_orders': Order.query.filter_by(status='completed').count(),
-            'total_plastics': Plastic.query.count()
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+    return jsonify({
+        'total_orders': Order.query.count(),
+        'new_orders': Order.query.filter_by(status='new').count(),
+        'in_progress_orders': Order.query.filter_by(status='in_progress').count(),
+        'completed_orders': Order.query.filter_by(status='completed').count(),
+        'total_plastics': Plastic.query.count()
+    })
 
 @app.route('/api/admin/orders')
 @login_required
 def admin_orders():
-    try:
-        orders = Order.query.order_by(Order.created_at.desc()).all()
-        return jsonify([o.to_dict() for o in orders])
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+    orders = Order.query.order_by(Order.created_at.desc()).all()
+    return jsonify([o.to_dict() for o in orders])
 
 @app.route('/api/admin/orders/<int:order_id>/status', methods=['PUT'])
 @login_required
 def update_order_status(order_id):
-    try:
-        data = request.get_json()
-        order = Order.query.get_or_404(order_id)
-        order.status = data.get('status')
-        db.session.commit()
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+    data = request.get_json()
+    order = Order.query.get_or_404(order_id)
+    order.status = data.get('status')
+    db.session.commit()
+    return jsonify({'success': True})
 
 @app.route('/api/admin/orders/<int:order_id>', methods=['DELETE'])
 @login_required
 def delete_order(order_id):
-    try:
-        order = Order.query.get_or_404(order_id)
-        db.session.delete(order)
-        db.session.commit()
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+    order = Order.query.get_or_404(order_id)
+    db.session.delete(order)
+    db.session.commit()
+    return jsonify({'success': True})
 
 @app.route('/api/admin/plastics', methods=['GET'])
 @login_required
 def admin_plastics():
-    try:
-        plastics = Plastic.query.all()
-        return jsonify([p.to_dict() for p in plastics])
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+    plastics = Plastic.query.all()
+    return jsonify([p.to_dict() for p in plastics])
 
 @app.route('/api/admin/plastics', methods=['POST'])
 @login_required
 def create_plastic():
-    try:
-        data = request.get_json()
-        plastic = Plastic(
-            name=data['name'],
-            color=data['color'],
-            color_code=data.get('color_code'),
-            price_per_gram=data.get('price_per_gram', 1.5),
-            in_stock=data.get('in_stock', True)
-        )
-        db.session.add(plastic)
-        db.session.commit()
-        return jsonify(plastic.to_dict()), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
+    data = request.get_json()
+    plastic = Plastic(
+        name=data['name'],
+        color=data['color'],
+        color_code=data.get('color_code'),
+        price_per_gram=data.get('price_per_gram', 1.5),
+        in_stock=data.get('in_stock', True)
+    )
+    db.session.add(plastic)
+    db.session.commit()
+    return jsonify(plastic.to_dict()), 201
 
 @app.route('/api/admin/plastics/<int:plastic_id>', methods=['PUT'])
 @login_required
 def update_plastic(plastic_id):
-    try:
-        plastic = Plastic.query.get_or_404(plastic_id)
-        data = request.get_json()
-        plastic.name = data.get('name', plastic.name)
-        plastic.color = data.get('color', plastic.color)
-        plastic.color_code = data.get('color_code')
-        plastic.price_per_gram = data.get('price_per_gram', plastic.price_per_gram)
-        plastic.in_stock = data.get('in_stock', plastic.in_stock)
-        db.session.commit()
-        return jsonify(plastic.to_dict())
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
+    plastic = Plastic.query.get_or_404(plastic_id)
+    data = request.get_json()
+    plastic.name = data.get('name', plastic.name)
+    plastic.color = data.get('color', plastic.color)
+    plastic.color_code = data.get('color_code')
+    plastic.price_per_gram = data.get('price_per_gram', plastic.price_per_gram)
+    plastic.in_stock = data.get('in_stock', plastic.in_stock)
+    db.session.commit()
+    return jsonify(plastic.to_dict())
 
 @app.route('/api/admin/plastics/<int:plastic_id>', methods=['DELETE'])
 @login_required
 def delete_plastic(plastic_id):
-    try:
-        plastic = Plastic.query.get_or_404(plastic_id)
-        db.session.delete(plastic)
-        db.session.commit()
-        return jsonify({'success': True})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+    plastic = Plastic.query.get_or_404(plastic_id)
+    db.session.delete(plastic)
+    db.session.commit()
+    return jsonify({'success': True})
 
-
-# ==================== ИНИЦИАЛИЗАЦИЯ БД ====================
+# ==================== ИНИЦИАЛИЗАЦИЯ ====================
 
 def init_db():
     with app.app_context():
         db.create_all()
-
+        
         # Создание администратора
         if not Admin.query.filter_by(username='admin').first():
             admin = Admin(username='admin', password='admin123')
             db.session.add(admin)
             db.session.commit()
             print("✅ Администратор создан: admin / admin123")
-
-        # Создание демо-пластиков
+        
+        # Создание пластиков
         if Plastic.query.count() == 0:
-            demo_plastics = [
+            plastics = [
                 Plastic(name='PLA', color='Белый', color_code='#FFFFFF', price_per_gram=1.5),
                 Plastic(name='PLA', color='Черный', color_code='#000000', price_per_gram=1.5),
                 Plastic(name='PLA', color='Красный', color_code='#FF4444', price_per_gram=1.5),
                 Plastic(name='PLA', color='Зеленый', color_code='#44FF44', price_per_gram=1.5),
                 Plastic(name='ABS', color='Желтый', color_code='#FFD700', price_per_gram=2.0),
-                Plastic(name='PETG', color='Синий', color_code='#4488FF', price_per_gram=1.8),
-                Plastic(name='TPU', color='Оранжевый', color_code='#FF8844', price_per_gram=2.5),
             ]
-            for p in demo_plastics:
+            for p in plastics:
                 db.session.add(p)
             db.session.commit()
-            print(f"✅ Создано {len(demo_plastics)} демо-пластиков")
-
+            print(f"✅ Создано {len(plastics)} пластиков")
 
 # ==================== ЗАПУСК ====================
 
@@ -310,15 +252,16 @@ if __name__ == '__main__':
     print("=" * 50)
     print("🚀 Запуск Kildear3D сервера")
     print("=" * 50)
-
+    
     init_db()
-
+    
     print("\n📌 Доступные адреса:")
     print("   - Сайт: http://localhost:5000")
     print("   - Админ-панель: http://localhost:5000/admin")
+    print("   - API пластиков: http://localhost:5000/api/plastics")
     print("   - Логин: admin")
     print("   - Пароль: admin123")
-    print("\n⚠️  Для остановки сервера нажмите CTRL+C")
+    print("\n⚠️  Для остановки нажмите CTRL+C")
     print("=" * 50)
-
+    
     app.run(debug=True, host='0.0.0.0', port=5000)
