@@ -28,6 +28,11 @@ if not ADMIN_ID:
 else:
     ADMIN_ID = int(ADMIN_ID)
 
+# ========== ИНИЦИАЛИЗАЦИЯ БОТА ==========
+bot = Bot(token=TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+
 # ========== ЮРИДИЧЕСКИЙ ТЕКСТ ==========
 LEGAL_TEXT = """
 📜 *ПРАВИЛА И УСЛОВИЯ 3D ПЕЧАТИ*
@@ -119,6 +124,25 @@ reward_kb = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+delivery_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🚗 Самовывоз")],
+        [KeyboardButton(text="📦 Почта")],
+        [KeyboardButton(text="🚚 СДЭК")],
+        [KeyboardButton(text="❌ Отмена")]
+    ],
+    resize_keyboard=True
+)
+
+model_type_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="✅ Готовая модель")],
+        [KeyboardButton(text="🎨 Нужен дизайн")],
+        [KeyboardButton(text="❌ Отмена")]
+    ],
+    resize_keyboard=True
+)
+
 # ========== КОМАНДЫ ==========
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -133,13 +157,16 @@ async def cmd_start(message: types.Message):
 async def cmd_rules(message: types.Message):
     await message.answer(LEGAL_TEXT, parse_mode="Markdown")
 
-# ========== ОТДЕЛ 1: РЕКЛАМЩИКИ / ПАРТНЕРЫ ==========
+@dp.message(F.text == "📜 Правила")
+async def rules_button(message: types.Message):
+    await message.answer(LEGAL_TEXT, parse_mode="Markdown")
+
+# ========== ОТДЕЛ 1: ПАРТНЕРЫ ==========
 @dp.message(F.text == "🤝 Стать партнером")
 async def start_partner_reg(message: types.Message, state: FSMContext):
     await state.set_state(PartnerReg.name)
     await message.answer(
-        "🤝 *Регистрация в партнерской программе*\n\n"
-        "Как вас зовут?",
+        "🤝 *Регистрация в партнерской программе*\n\nКак вас зовут?",
         reply_markup=cancel_kb,
         parse_mode="Markdown"
     )
@@ -197,7 +224,6 @@ async def complete_partner_reg(message: types.Message, state: FSMContext):
     partners[str(message.from_user.id)] = partner
     save_json(PARTNERS_FILE, partners)
     
-    # Сохраняем промокод
     promocodes = load_json(PROMOCODES_FILE)
     promocodes[promo] = {"partner_id": message.from_user.id, "used": False, "used_by": None}
     save_json(PROMOCODES_FILE, promocodes)
@@ -205,12 +231,8 @@ async def complete_partner_reg(message: types.Message, state: FSMContext):
     await message.answer(
         f"✅ *Вы зарегистрированы в партнерской программе!*\n\n"
         f"🤝 Ваш промокод: *{promo}*\n\n"
-        f"📌 Как это работает:\n"
-        f"• Дайте промокод клиентам\n"
-        f"• При заказе они введут его\n"
-        f"• После оплаты вы получите 10% от суммы\n\n"
-        f"💳 Выплаты: {data['reward_type']}\n"
-        f"📞 Контакт: {data['contact']}",
+        f"📌 Дайте промокод клиентам, они получат скидку 10%, а вы - 10% от заказа.",
+        reply_markup=main_menu,
         parse_mode="Markdown"
     )
     
@@ -222,13 +244,12 @@ async def complete_partner_reg(message: types.Message, state: FSMContext):
         )
     await state.clear()
 
-# ========== ОТДЕЛ 2: 3D ДИЗАЙНЕРЫ ==========
+# ========== ОТДЕЛ 2: ДИЗАЙНЕРЫ ==========
 @dp.message(F.text == "🎨 Стать дизайнером")
 async def start_designer_reg(message: types.Message, state: FSMContext):
     await state.set_state(DesignerReg.name)
     await message.answer(
-        "🎨 *Регистрация 3D дизайнера*\n\n"
-        "Как вас зовут?",
+        "🎨 *Регистрация 3D дизайнера*\n\nКак вас зовут?",
         reply_markup=cancel_kb,
         parse_mode="Markdown"
     )
@@ -243,7 +264,7 @@ async def designer_name(message: types.Message, state: FSMContext):
 async def designer_experience(message: types.Message, state: FSMContext):
     await state.update_data(experience=message.text)
     await state.set_state(DesignerReg.skills)
-    await message.answer("🛠 *В каких программах работаете?* (Blender, Fusion360, SolidWorks и т.д.):", parse_mode="Markdown")
+    await message.answer("🛠 *В каких программах работаете?* (Blender, Fusion360, SolidWorks):", parse_mode="Markdown")
 
 @dp.message(DesignerReg.skills)
 async def designer_skills(message: types.Message, state: FSMContext):
@@ -271,36 +292,30 @@ async def designer_portfolio(message: types.Message, state: FSMContext):
     save_json(DESIGNERS_FILE, designers)
     
     await message.answer(
-        "✅ *Заявка отправлена!*\n\n"
-        "Я передал её руководителю.\n"
-        "Если одобрят — с вами свяжутся.",
+        "✅ *Заявка отправлена!*\n\nЕсли одобрят — с вами свяжутся.",
+        reply_markup=main_menu,
         parse_mode="Markdown"
     )
     
     if ADMIN_ID:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Принять дизайнера", callback_data=f"accept_designer_{message.from_user.id}"),
+            [InlineKeyboardButton(text="✅ Принять", callback_data=f"accept_designer_{message.from_user.id}"),
              InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_designer_{message.from_user.id}")]
         ])
         await bot.send_message(
             ADMIN_ID,
-            f"🔔 *Новая заявка дизайнера!*\n"
-            f"👤 {data['name']}\n"
-            f"⏱ Стаж: {data['experience']} лет\n"
-            f"🛠 Навыки: {data['skills']}\n"
-            f"📎 Портфолио: {message.text}",
+            f"🔔 *Новая заявка дизайнера!*\n👤 {data['name']}\n⏱ Стаж: {data['experience']} лет\n🛠 {data['skills']}\n📎 {message.text}",
             parse_mode="Markdown",
             reply_markup=kb
         )
     await state.clear()
 
-# ========== ОТДЕЛ 3: ФРАНШИЗА / ФИЛИАЛЫ ==========
+# ========== ОТДЕЛ 3: ФИЛИАЛЫ ==========
 @dp.message(F.text == "🏭 Стать частью фирмы")
 async def start_franchise_reg(message: types.Message, state: FSMContext):
     await state.set_state(FranchiseReg.name)
     await message.answer(
-        "🏭 *Регистрация филиала*\n\n"
-        "Как вас зовут?",
+        "🏭 *Регистрация филиала*\n\nКак вас зовут?",
         reply_markup=cancel_kb,
         parse_mode="Markdown"
     )
@@ -315,7 +330,7 @@ async def franchise_name(message: types.Message, state: FSMContext):
 async def franchise_city(message: types.Message, state: FSMContext):
     await state.update_data(city=message.text)
     await state.set_state(FranchiseReg.printer_model)
-    await message.answer("🖨️ *Какая у вас модель 3D принтера?*", parse_mode="Markdown")
+    await message.answer("🖨️ *Какая модель 3D принтера?*", parse_mode="Markdown")
 
 @dp.message(FranchiseReg.printer_model)
 async def franchise_printer(message: types.Message, state: FSMContext):
@@ -343,158 +358,35 @@ async def franchise_contact(message: types.Message, state: FSMContext):
     save_json(FRANCHISE_FILE, franchises)
     
     await message.answer(
-        "✅ *Заявка отправлена!*\n\n"
-        "Я передал её руководителю.\n"
-        "Если одобрят — вы станете частью фирмы.\n"
-        "Схема: 80% вам, 20% нам.",
+        "✅ *Заявка отправлена!*\n\nЕсли одобрят — вы станете частью фирмы (80% вам, 20% нам).",
+        reply_markup=main_menu,
         parse_mode="Markdown"
     )
     
     if ADMIN_ID:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Одобрить филиал", callback_data=f"accept_franchise_{message.from_user.id}"),
+            [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"accept_franchise_{message.from_user.id}"),
              InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_franchise_{message.from_user.id}")]
         ])
         await bot.send_message(
             ADMIN_ID,
-            f"🔔 *Новая заявка на филиал!*\n"
-            f"👤 {data['name']}\n"
-            f"📍 Город: {data['city']}\n"
-            f"🖨 Принтер: {data['printer_model']}\n"
-            f"📞 Контакты: {message.text}",
+            f"🔔 *Новый филиал!*\n👤 {data['name']}\n📍 {data['city']}\n🖨 {data['printer_model']}\n📞 {message.text}",
             parse_mode="Markdown",
             reply_markup=kb
         )
     await state.clear()
 
-# ========== ОСНОВНАЯ ЗАЯВКА (с промокодом) ==========
-@dp.message(F.text == "📝 Оставить заявку")
-async def start_order(message: types.Message, state: FSMContext):
-    await state.set_state(OrderForm.legal_accept)
-    await message.answer(LEGAL_TEXT + "\n\n⬇️ *Примите условия* ⬇️", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Принимаю", callback_data="accept_legal")]
-    ]))
-
-@dp.callback_query(lambda c: c.data == "accept_legal")
-async def handle_legal(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("✅ Условия приняты!")
-    await state.set_state(OrderForm.name)
-    await callback.message.answer("🔹 *Как вас зовут?*", reply_markup=cancel_kb, parse_mode="Markdown")
-    await callback.answer()
-
-@dp.message(OrderForm.name)
-async def get_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await state.set_state(OrderForm.contact)
-    await message.answer("📞 *Контакты для связи* (телефон / Telegram):", parse_mode="Markdown")
-
-@dp.message(OrderForm.contact)
-async def get_contact(message: types.Message, state: FSMContext):
-    await state.update_data(contact=message.text)
-    await state.set_state(OrderForm.delivery)
-    await message.answer("🚚 *Способ получения:*\n🚗 Самовывоз\n📦 Почта\n🚚 СДЭК", reply_markup=ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🚗 Самовывоз")], [KeyboardButton(text="📦 Почта")], [KeyboardButton(text="🚚 СДЭК")], [KeyboardButton(text="❌ Отмена")]],
-        resize_keyboard=True
-    ), parse_mode="Markdown")
-
-@dp.message(OrderForm.delivery)
-async def get_delivery(message: types.Message, state: FSMContext):
-    await state.update_data(delivery=message.text)
-    await state.set_state(OrderForm.promo)
-    await message.answer("🎟 *Есть промокод?* Введите или напишите 'пропустить':", parse_mode="Markdown")
-
-@dp.message(OrderForm.promo)
-async def get_promo(message: types.Message, state: FSMContext):
-    promo = None if message.text.lower() == "пропустить" else message.text.upper()
-    if promo:
-        promocodes = load_json(PROMOCODES_FILE)
-        if promo in promocodes and not promocodes[promo]["used"]:
-            await state.update_data(promo=promo)
-            await message.answer(f"✅ Промокод *{promo}* активирован! Вы получите скидку 10% после оплаты.", parse_mode="Markdown")
-        else:
-            await message.answer("❌ Неверный или уже использованный промокод. Продолжаем без скидки.")
-            await state.update_data(promo=None)
-    else:
-        await state.update_data(promo=None)
-    
-    await state.set_state(OrderForm.model_type)
-    await message.answer("🔹 *У вас готовая модель?*", reply_markup=ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="✅ Готовая модель")], [KeyboardButton(text="🎨 Нужен дизайн")], [KeyboardButton(text="❌ Отмена")]],
-        resize_keyboard=True
-    ), parse_mode="Markdown")
-
-@dp.message(OrderForm.model_type)
-async def get_model_type(message: types.Message, state: FSMContext):
-    if "Готовая" in message.text:
-        await state.update_data(model_type="ready", files=[])
-        await state.set_state(OrderForm.waiting_files)
-        await message.answer("📁 *Отправьте файл модели* (STL/OBJ/3MF). Когда закончите, напишите 'готово':", parse_mode="Markdown")
-    else:
-        await state.update_data(model_type="need_design")
-        await state.set_state(OrderForm.description)
-        await message.answer("🎨 *Опишите, что нужно смоделировать* (размеры, форма, назначение):", parse_mode="Markdown")
-
-@dp.message(OrderForm.waiting_files)
-async def get_files(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    files = data.get("files", [])
-    
-    if message.document:
-        files.append({"file_id": message.document.file_id, "name": message.document.file_name})
-        await state.update_data(files=files)
-        await message.answer(f"✅ Файл добавлен. Всего: {len(files)}. Напишите 'готово' для завершения.")
-    elif message.text and message.text.lower() == "готово":
-        if files:
-            await state.set_state(OrderForm.description)
-            await message.answer("📝 *Опишите пожелания по печати* (материал, цвет, сроки):", parse_mode="Markdown")
-        else:
-            await message.answer("❌ Вы не отправили ни одного файла.")
-
-@dp.message(OrderForm.description)
-async def get_description(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    promo = data.get("promo")
-    
-    order = {
-        "user_id": message.from_user.id,
-        "name": data["name"],
-        "contact": data["contact"],
-        "delivery": data["delivery"],
-        "promocode": promo,
-        "model_type": data["model_type"],
-        "files": data.get("files", []),
-        "description": message.text,
-        "status": "new",
-        "created_at": str(datetime.now())
-    }
-    
-    orders = load_json(ORDERS_FILE)
-    orders[str(message.from_user.id)] = order
-    save_json(ORDERS_FILE, orders)
-    
-    await message.answer("✅ *Заявка отправлена!* Оператор свяжется с вами.", reply_markup=main_menu, parse_mode="Markdown")
-    
-    if ADMIN_ID:
-        text = f"🔔 *НОВАЯ ЗАЯВКА!*\n👤 {data['name']}\n📞 {data['contact']}\n🚚 {data['delivery']}\n📝 {message.text}"
-        if promo:
-            partner_id = load_json(PROMOCODES_FILE).get(promo, {}).get("partner_id")
-            text += f"\n🎟 Промокод: {promo} (партнер: {partner_id})"
-        await bot.send_message(ADMIN_ID, text, parse_mode="Markdown")
-        if data.get("files"):
-            for f in data["files"]:
-                await bot.send_document(ADMIN_ID, f["file_id"], caption=f["name"])
-    
-    await state.clear()
-
-# ========== АДМИН-ПАНЕЛЬ ==========
+# ========== ОБРАБОТКА ЗАЯВОК АДМИНА ==========
 @dp.callback_query(lambda c: c.data.startswith(("accept_designer_", "reject_designer_", "accept_franchise_", "reject_franchise_")))
 async def handle_admin_approvals(callback: types.CallbackQuery):
     if ADMIN_ID and callback.from_user.id != ADMIN_ID:
         await callback.answer("❌ Только для админа", show_alert=True)
         return
     
-    action, role, user_id = callback.data.rsplit("_", 2)
-    user_id = int(user_id)
+    parts = callback.data.split("_")
+    action = parts[0]
+    role = parts[1]
+    user_id = int(parts[2])
     
     if role == "designer":
         designers = load_json(DESIGNERS_FILE)
@@ -502,13 +394,12 @@ async def handle_admin_approvals(callback: types.CallbackQuery):
             if action == "accept":
                 designers[str(user_id)]["status"] = "accepted"
                 save_json(DESIGNERS_FILE, designers)
-                await bot.send_message(user_id, "✅ *Ваша заявка дизайнера одобрена!* С вами свяжутся для обсуждения процента.", parse_mode="Markdown")
-                await callback.message.edit_text(callback.message.text + "\n\n✅ ДИЗАЙНЕР ПРИНЯТ")
+                await bot.send_message(user_id, "✅ *Заявка дизайнера одобрена!* С вами свяжутся.", parse_mode="Markdown")
             else:
                 designers[str(user_id)]["status"] = "rejected"
                 save_json(DESIGNERS_FILE, designers)
-                await bot.send_message(user_id, "❌ Ваша заявка дизайнера отклонена.", parse_mode="Markdown")
-                await callback.message.edit_text(callback.message.text + "\n\n❌ ОТКЛОНЕН")
+                await bot.send_message(user_id, "❌ Заявка отклонена.", parse_mode="Markdown")
+            await callback.message.edit_text(callback.message.text + f"\n\n✅ {action.upper()}")
     
     elif role == "franchise":
         franchises = load_json(FRANCHISE_FILE)
@@ -516,20 +407,39 @@ async def handle_admin_approvals(callback: types.CallbackQuery):
             if action == "accept":
                 franchises[str(user_id)]["status"] = "accepted"
                 save_json(FRANCHISE_FILE, franchises)
-                await bot.send_message(user_id, "✅ *Вы стали частью фирмы Kildear!*\n\nСхема работы: 80% вам, 20% нам. Заказы в вашем городе будут приходить вам.", parse_mode="Markdown")
-                await callback.message.edit_text(callback.message.text + "\n\n✅ ФИЛИАЛ ОДОБРЕН")
+                await bot.send_message(user_id, "✅ *Вы стали частью фирмы!* 80% вам, 20% нам.", parse_mode="Markdown")
             else:
                 franchises[str(user_id)]["status"] = "rejected"
                 save_json(FRANCHISE_FILE, franchises)
-                await bot.send_message(user_id, "❌ Ваша заявка отклонена.", parse_mode="Markdown")
-                await callback.message.edit_text(callback.message.text + "\n\n❌ ОТКЛОНЕН")
+                await bot.send_message(user_id, "❌ Заявка отклонена.", parse_mode="Markdown")
+            await callback.message.edit_text(callback.message.text + f"\n\n✅ {action.upper()}")
     
     await callback.answer()
+
+# ========== ОСНОВНАЯ ЗАЯВКА (упрощенно для теста) ==========
+@dp.message(F.text == "📝 Оставить заявку")
+async def start_order(message: types.Message):
+    await message.answer(
+        "📝 *Форма заявки*\n\n"
+        "Для оформления заказа напишите:\n"
+        "• Ваше имя\n"
+        "• Контакт\n"
+        "• Описание модели\n\n"
+        "Или свяжитесь с оператором напрямую.",
+        reply_markup=main_menu,
+        parse_mode="Markdown"
+    )
+
+@dp.message(F.text == "❌ Отмена")
+async def cancel_action(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Действие отменено.", reply_markup=main_menu)
 
 # ========== ЗАПУСК ==========
 async def main():
     print("🚀 Бот ИП «Kildear» запущен!")
-    print(f"✅ Партнеры, Дизайнеры, Филиалы — все модули активны")
+    print(f"✅ Токен: {TOKEN[:10]}...")
+    print(f"✅ ADMIN_ID: {ADMIN_ID}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
