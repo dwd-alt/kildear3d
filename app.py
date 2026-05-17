@@ -11,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiohttp import web
 
 print(f"✅ Python version: {sys.version}")
 
@@ -33,7 +34,7 @@ bot = Bot(token=TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# ========== ЮРИДИЧЕСКИЙ ТЕКСТ (старое соглашение) ==========
+# ========== ЮРИДИЧЕСКИЙ ТЕКСТ ==========
 LEGAL_TEXT = """
 📜 *ПРАВИЛА И УСЛОВИЯ 3D ПЕЧАТИ*
 
@@ -65,7 +66,7 @@ LEGAL_TEXT = """
 • Функциональность модели зависит от качества предоставленного файла
 • Результат печати может отличаться от ожидаемого клиентом
 
-Нажимая \"✅ Принимаю условия\", вы подтверждаете согласие с данными правилами.
+Нажимая "✅ Принимаю условия", вы подтверждаете согласие с данными правилами.
 """
 
 # ========== ХРАНИЛИЩА ==========
@@ -178,6 +179,29 @@ async def cmd_rules(message: types.Message):
 @dp.message(F.text == "📜 Правила")
 async def rules_button(message: types.Message):
     await message.answer(LEGAL_TEXT, parse_mode="Markdown")
+
+@dp.message(Command("status"))
+async def cmd_status(message: types.Message):
+    orders = load_json(ORDERS_FILE)
+    user_id = str(message.from_user.id)
+    
+    if user_id in orders:
+        order = orders[user_id]
+        status_text = {
+            "new": "⏳ На рассмотрении",
+            "accepted": "✅ Принята",
+            "rejected": "❌ Отклонена"
+        }.get(order.get("status", "new"), "❓ Неизвестно")
+        
+        await message.answer(
+            f"📋 *Статус вашей заявки:* {status_text}\n\n"
+            f"👤 Имя: {order['name']}\n"
+            f"📞 Контакт: {order['contact']}\n"
+            f"🚚 Доставка: {order.get('delivery', 'Не указана')}",
+            parse_mode="Markdown"
+        )
+    else:
+        await message.answer("❌ У вас нет активных заявок.", reply_markup=main_menu)
 
 # ========== ОТДЕЛ 1: ПАРТНЕРЫ ==========
 @dp.message(F.text == "🤝 Стать партнером")
@@ -394,7 +418,7 @@ async def franchise_contact(message: types.Message, state: FSMContext):
         )
     await state.clear()
 
-# ========== ОСНОВНАЯ ЗАЯВКА (полная версия) ==========
+# ========== ОСНОВНАЯ ЗАЯВКА ==========
 @dp.message(F.text == "📝 Оставить заявку")
 async def start_order(message: types.Message, state: FSMContext):
     await state.set_state(OrderForm.legal_accept)
@@ -717,34 +741,29 @@ async def handle_admin_approvals(callback: types.CallbackQuery):
     
     await callback.answer()
 
-@dp.message(Command("status"))
-async def cmd_status(message: types.Message):
-    orders = load_json(ORDERS_FILE)
-    user_id = str(message.from_user.id)
-    
-    if user_id in orders:
-        order = orders[user_id]
-        status_text = {
-            "new": "⏳ На рассмотрении",
-            "accepted": "✅ Принята",
-            "rejected": "❌ Отклонена"
-        }.get(order.get("status", "new"), "❓ Неизвестно")
-        
-        await message.answer(
-            f"📋 *Статус вашей заявки:* {status_text}\n\n"
-            f"👤 Имя: {order['name']}\n"
-            f"📞 Контакт: {order['contact']}\n"
-            f"🚚 Доставка: {order.get('delivery', 'Не указана')}",
-            parse_mode="Markdown"
-        )
-    else:
-        await message.answer("❌ У вас нет активных заявок.", reply_markup=main_menu)
+# ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
+async def health_check(request):
+    return web.Response(text="OK")
+
+async def start_web_server():
+    app_web = web.Application()
+    app_web.router.add_get("/", health_check)
+    runner = web.AppRunner(app_web)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"✅ Веб-сервер запущен на порту {port}")
 
 # ========== ЗАПУСК ==========
 async def main():
+    # Запускаем веб-сервер для health check (чтобы Render не ругался)
+    await start_web_server()
+    
     print("🚀 Бот ИП «Kildear» запущен!")
     print(f"✅ Токен: {TOKEN[:10]}...")
     print(f"✅ ADMIN_ID: {ADMIN_ID}")
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
