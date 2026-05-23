@@ -100,6 +100,10 @@ def generate_promo():
 def generate_order_id():
     return f"ORD-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
 
+def generate_receipt_number():
+    """Генерация внутреннего номера квитанции"""
+    return f"INV-{datetime.now().strftime('%Y%m%d')}-{random.randint(100000, 999999)}"
+
 def generate_qr(data: str) -> BytesIO:
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(data)
@@ -158,6 +162,22 @@ class ReviewForm(StatesGroup):
 class DiscountRequest(StatesGroup):
     reason = State()
 
+class InvoiceForm(StatesGroup):
+    """Форма для заполнения квитанции"""
+    price = State()
+    material = State()
+    color = State()
+    quantity = State()
+    discount = State()
+    delivery_price = State()
+    delivery_address = State()
+    payment_method = State()
+    comment = State()
+    tracking_number = State()
+    ready_days = State()
+    future_promo = State()
+    confirm = State()
+
 # ========== КЛАВИАТУРЫ ==========
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
@@ -165,7 +185,7 @@ main_menu = ReplyKeyboardMarkup(
         [KeyboardButton(text="📊 Мои заказы"), KeyboardButton(text="⭐ Оставить отзыв")],
         [KeyboardButton(text="💰 Запросить скидку"), KeyboardButton(text="🎟 Промокоды")],
         [KeyboardButton(text="🤝 Стать партнером"), KeyboardButton(text="🎨 Стать дизайнером")],
-        [KeyboardButton(text="🏭 Стать частью фирмы"), KeyboardButton(text="📜 Правилы")]
+        [KeyboardButton(text="🏭 Стать частью фирмы"), KeyboardButton(text="📜 Правила")]
     ],
     resize_keyboard=True
 )
@@ -175,7 +195,8 @@ admin_menu = ReplyKeyboardMarkup(
         [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="📈 Отчеты")],
         [KeyboardButton(text="💰 Запросы скидок"), KeyboardButton(text="⭐ Отзывы")],
         [KeyboardButton(text="🎟 Управление промокодами"), KeyboardButton(text="📦 Все заказы")],
-        [KeyboardButton(text="👥 Пользователи"), KeyboardButton(text="🔄 Изменить статус")]
+        [KeyboardButton(text="👥 Пользователи"), KeyboardButton(text="🔄 Изменить статус")],
+        [KeyboardButton(text="📋 Создать квитанцию")]
     ],
     resize_keyboard=True
 )
@@ -213,10 +234,223 @@ model_type_kb = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ========== КОМАНДЫ ==========
+# ========== ГЕНЕРАЦИЯ КВИТАНЦИИ (НЕ ЧЕК!) ==========
+async def generate_invoice(order: dict, payment_data: dict = None) -> BytesIO:
+    """
+    Генерация информационной квитанции об оплате
+    ВНИМАНИЕ: Это НЕ фискальный чек, а просто внутренний документ
+    Фискальный чек отправляется отдельно через ККТ при необходимости
+    """
+    img = Image.new('RGB', (900, 1550), color='white')
+    draw = ImageDraw.Draw(img)
+    
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        font_header = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_normal = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        font_bold_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+    except:
+        font_title = ImageFont.load_default()
+        font_header = ImageFont.load_default()
+        font_normal = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+        font_bold_small = ImageFont.load_default()
+    
+    y = 40
+    x = 50
+    
+    # Заголовок
+    draw.text((x, y), "📋 КВИТАНЦИЯ ОБ ОПЛАТЕ", fill='black', font=font_title)
+    y += 45
+    draw.text((x, y), "Внутренний документ (не является фискальным чеком)", fill='gray', font=font_small)
+    y += 35
+    
+    # Рамка
+    draw.rectangle([x-10, y-10, 850, y + 680], outline='black', width=2)
+    
+    # Данные магазина
+    draw.text((x, y), "🏭 ИП «Kildear»", fill='black', font=font_header)
+    y += 40
+    draw.text((x, y), f"ИНН: {payment_data.get('inn', '1234567890')}", fill='gray', font=font_small)
+    y += 25
+    draw.text((x, y), f"ОГРНИП: {payment_data.get('ogrnip', '123456789012345')}", fill='gray', font=font_small)
+    y += 40
+    
+    # Номер квитанции
+    invoice_number = generate_receipt_number()
+    draw.text((x, y), f"КВИТАНЦИЯ №: {invoice_number}", fill='black', font=font_normal)
+    y += 35
+    
+    # Линия разделитель
+    draw.line([x, y, 850, y], fill='black', width=1)
+    y += 20
+    
+    # Детали заказа
+    draw.text((x, y), "📋 ДЕТАЛИ ЗАКАЗА", fill='black', font=font_header)
+    y += 40
+    
+    invoice_data = [
+        ("Номер заказа", order.get("order_id", "Нет")),
+        ("Дата выставления", payment_data.get('date', datetime.now().strftime("%d.%m.%Y %H:%M"))),
+        ("Способ оплаты", payment_data.get('payment_method', 'Перевод по реквизитам')),
+        ("Статус оплаты", "Ожидает подтверждения"),
+    ]
+    
+    for label, value in invoice_data:
+        draw.text((x, y), f"{label}:", fill='black', font=font_normal)
+        draw.text((x + 220, y), str(value), fill='black', font=font_normal)
+        y += 35
+    
+    y += 10
+    draw.line([x, y, 850, y], fill='black', width=1)
+    y += 20
+    
+    # Данные клиента
+    draw.text((x, y), "👤 ДАННЫЕ КЛИЕНТА", fill='black', font=font_header)
+    y += 40
+    
+    username = order.get("username", "Нет username")
+    if username and username != "Нет username":
+        username_display = f"@{username}"
+    else:
+        username_display = order.get("contact", "Не указан")
+    
+    client_data = [
+        ("Имя", order.get("name", "Не указано")),
+        ("Telegram", username_display),
+        ("Контакты", order.get("contact", "Не указаны")),
+        ("Адрес доставки", payment_data.get('delivery_address', order.get("delivery", "Самовывоз"))),
+    ]
+    
+    for label, value in client_data:
+        draw.text((x, y), f"{label}:", fill='black', font=font_normal)
+        draw.text((x + 220, y), str(value), fill='black', font=font_normal)
+        y += 35
+    
+    y += 10
+    draw.line([x, y, 850, y], fill='black', width=1)
+    y += 20
+    
+    # Информация о заказе
+    draw.text((x, y), "🖨️ ИНФОРМАЦИЯ О ЗАКАЗЕ", fill='black', font=font_header)
+    y += 40
+    
+    order_data = [
+        ("Тип работы", "Готовая модель" if order.get("model_type") == "ready" else "Дизайн + печать"),
+        ("Материал", payment_data.get('material', 'Не указан')),
+        ("Цвет", payment_data.get('color', 'Не указан')),
+        ("Количество", str(payment_data.get('quantity', 1)) + " шт."),
+        ("Промокод", order.get("promocode", "Не использован")),
+        ("Ориентировочный срок", payment_data.get('ready_days', '3-5 рабочих дней')),
+    ]
+    
+    for label, value in order_data:
+        draw.text((x, y), f"{label}:", fill='black', font=font_normal)
+        draw.text((x + 220, y), str(value), fill='black', font=font_normal)
+        y += 35
+    
+    # Трек-номер
+    if payment_data.get('tracking_number'):
+        y += 10
+        draw.text((x, y), "📦 Трек-номер:", fill='black', font=font_normal)
+        draw.text((x + 220, y), payment_data['tracking_number'], fill='blue', font=font_bold_small)
+        y += 35
+        draw.text((x, y), "Сайт отслеживания:", fill='black', font=font_small)
+        draw.text((x + 220, y), "https://www.pochta.ru/tracking", fill='blue', font=font_small)
+        y += 35
+    
+    y += 10
+    draw.line([x, y, 850, y], fill='black', width=1)
+    y += 20
+    
+    # Финансовая информация
+    draw.text((x, y), "💰 ФИНАНСЫ", fill='black', font=font_header)
+    y += 40
+    
+    original_price = payment_data.get('price', 0)
+    discount = payment_data.get('discount', 0)
+    final_price = original_price * (100 - discount) / 100
+    delivery_price = payment_data.get('delivery_price', 0)
+    total = final_price + delivery_price
+    
+    finance_data = [
+        ("Стоимость печати", f"{original_price} ₽"),
+        ("Скидка", f"{discount}%" if discount > 0 else "0%"),
+        ("Сумма со скидкой", f"{final_price:.2f} ₽"),
+        ("Доставка", f"{delivery_price} ₽"),
+        ("ИТОГО К ОПЛАТЕ", f"{total:.2f} ₽"),
+    ]
+    
+    for label, value in finance_data:
+        draw.text((x, y), f"{label}:", fill='black', font=font_normal)
+        if label == "ИТОГО К ОПЛАТЕ":
+            draw.text((x + 220, y), value, fill='red', font=font_header)
+        else:
+            draw.text((x + 220, y), value, fill='black', font=font_normal)
+        y += 40
+    
+    # Промокод на будущее
+    if payment_data.get('future_promo'):
+        y += 10
+        draw.text((x, y), "🎟 ПРОМОКОД НА БУДУЩЕЕ", fill='black', font=font_header)
+        y += 40
+        draw.text((x, y), f"Ваш промокод:", fill='black', font=font_normal)
+        draw.text((x + 220, y), payment_data['future_promo'], fill='green', font=font_bold_small)
+        y += 35
+        draw.text((x, y), "Скидка:", fill='black', font=font_normal)
+        draw.text((x + 220, y), "10% на следующий заказ", fill='gray', font=font_small)
+    
+    # Комментарий
+    if payment_data.get('comment'):
+        y += 30
+        draw.text((x, y), "📝 Комментарий:", fill='black', font=font_normal)
+        y += 25
+        comment_text = payment_data['comment']
+        max_len = 60
+        for i in range(0, len(comment_text), max_len):
+            draw.text((x, y), comment_text[i:i+max_len], fill='gray', font=font_small)
+            y += 25
+    
+    # QR код с данными заказа
+    y = 1100
+    draw.text((x, y), "📱 QR КОД С ДАННЫМИ ЗАКАЗА", fill='black', font=font_header)
+    y += 50
+    
+    qr_data = f"""ЗАКАЗ #{order.get("order_id")}
+Клиент: @{username if username != "Нет username" else order.get("name")}
+Сумма: {total:.2f} ₽
+Дата: {payment_data.get('date', datetime.now().strftime("%d.%m.%Y"))}
+Трек-номер: {payment_data.get('tracking_number', 'Нет')}
+Промокод: {payment_data.get('future_promo', 'Нет')}"""
+    
+    qr_img = generate_qr(qr_data)
+    qr_pil = Image.open(qr_img)
+    qr_pil = qr_pil.resize((200, 200))
+    img.paste(qr_pil, (350, y))
+    
+    # Подпись
+    y = 1400
+    draw.line([x, y, 850, y], fill='black', width=1)
+    y += 20
+    draw.text((x, y), "Спасибо за заказ!", fill='black', font=font_small)
+    draw.text((x + 400, y), "Подпись: __________", fill='black', font=font_small)
+    y += 25
+    draw.text((x + 350, y), datetime.now().strftime("%d.%m.%Y %H:%M"), fill='gray', font=font_small)
+    
+    # Важное примечание
+    y += 40
+    draw.text((x, y), "⚠️ Данная квитанция не является фискальным чеком и носит информационный характер", 
+              fill='red', font=font_small)
+    
+    img_bytes = BytesIO()
+    img.save(img_bytes, format='PNG', dpi=(300, 300))
+    img_bytes.seek(0)
+    return img_bytes
+
+# ========== ОСНОВНЫЕ КОМАНДЫ ==========
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    # Сохраняем пользователя
     users = load_json(USERS_FILE)
     user_id = str(message.from_user.id)
     if user_id not in users:
@@ -241,7 +475,7 @@ async def cmd_start(message: types.Message):
 async def cmd_rules(message: types.Message):
     await message.answer(LEGAL_TEXT, parse_mode="Markdown")
 
-@dp.message(F.text == "📜 Правилы")
+@dp.message(F.text == "📜 Правила")
 async def rules_button(message: types.Message):
     await message.answer(LEGAL_TEXT, parse_mode="Markdown")
 
@@ -267,7 +501,6 @@ async def cmd_status(message: types.Message):
         parse_mode="Markdown"
     )
 
-# ========== НОВЫЕ КОМАНДЫ ==========
 @dp.message(F.text == "📊 Мои заказы")
 async def my_orders(message: types.Message):
     orders = load_json(ORDERS_FILE)
@@ -293,7 +526,7 @@ async def start_review(message: types.Message, state: FSMContext):
     user_orders = [o for o in orders.values() if o["user_id"] == message.from_user.id and o["status"] == "completed"]
     
     if not user_orders:
-        await message.answer("❌ У вас нет завершенных заказов для отзыва.\n\nЗакажите что-нибудь и после завершения сможете оставить отзыв!", reply_markup=main_menu)
+        await message.answer("❌ У вас нет завершенных заказов для отзыва.", reply_markup=main_menu)
         return
     
     await state.set_state(ReviewForm.rating)
@@ -418,547 +651,284 @@ async def my_promocodes(message: types.Message):
             parse_mode="Markdown"
         )
 
-# ========== ОТДЕЛ 1: ПАРТНЕРЫ ==========
-@dp.message(F.text == "🤝 Стать партнером")
-async def start_partner_reg(message: types.Message, state: FSMContext):
-    await state.set_state(PartnerReg.name)
-    await message.answer(
-        "🤝 *Регистрация в партнерской программе*\n\nКак вас зовут?",
-        reply_markup=cancel_kb,
-        parse_mode="Markdown"
-    )
-
-@dp.message(PartnerReg.name)
-async def partner_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await state.set_state(PartnerReg.contact)
-    await message.answer("📱 *Контакты для связи* (телефон / Telegram):", parse_mode="Markdown")
-
-@dp.message(PartnerReg.contact)
-async def partner_contact(message: types.Message, state: FSMContext):
-    await state.update_data(contact=message.text)
-    await state.set_state(PartnerReg.reward_type)
-    await message.answer(
-        "🎁 *Как хотите получать вознаграждение?*",
-        reply_markup=reward_kb,
-        parse_mode="Markdown"
-    )
-
-@dp.message(PartnerReg.reward_type)
-async def partner_reward_type(message: types.Message, state: FSMContext):
-    if "деньгами" in message.text:
-        await state.update_data(reward_type="money")
-        await state.set_state(PartnerReg.payment_info)
-        await message.answer("💳 *Укажите реквизиты для перевода* (номер карты или телефона):", parse_mode="Markdown")
-    elif "скидка" in message.text:
-        await state.update_data(reward_type="discount")
-        await complete_partner_reg(message, state)
-    else:
-        await message.answer("Выберите вариант из кнопок")
-
-@dp.message(PartnerReg.payment_info)
-async def partner_payment(message: types.Message, state: FSMContext):
-    await state.update_data(payment_info=message.text)
-    await complete_partner_reg(message, state)
-
-async def complete_partner_reg(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    promo = generate_promo()
+# ========== АДМИН-ФУНКЦИИ ==========
+@dp.message(F.text == "📋 Создать квитанцию")
+async def start_invoice_creation(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только для админа")
+        return
     
-    partner = {
-        "user_id": message.from_user.id,
-        "username": message.from_user.username,
-        "name": data["name"],
-        "contact": data["contact"],
-        "reward_type": data["reward_type"],
-        "payment_info": data.get("payment_info", ""),
-        "promocode": promo,
-        "balance": 0,
-        "created_at": str(datetime.now())
-    }
-    
-    partners = load_json(PARTNERS_FILE)
-    partners[str(message.from_user.id)] = partner
-    save_json(PARTNERS_FILE, partners)
-    
-    promocodes = load_json(PROMOCODES_FILE)
-    promocodes[promo] = {"partner_id": message.from_user.id, "used": False, "used_by": None}
-    save_json(PROMOCODES_FILE, promocodes)
+    orders = load_json(ORDERS_FILE)
+    keyboard = []
+    for order_id, order in list(orders.items())[-10:]:
+        keyboard.append([InlineKeyboardButton(
+            text=f"#{order.get('order_id', order_id)} - {order.get('name', 'Нет')}",
+            callback_data=f"create_invoice_{order_id}"
+        )])
     
     await message.answer(
-        f"✅ *Вы зарегистрированы в партнерской программе!*\n\n"
-        f"🤝 Ваш промокод: *{promo}*\n\n"
-        f"📌 Дайте промокод клиентам, они получат скидку 10%, а вы - 10% от заказа.",
-        reply_markup=main_menu,
-        parse_mode="Markdown"
-    )
-    
-    if ADMIN_ID:
-        await bot.send_message(
-            ADMIN_ID,
-            f"🔔 *Новый партнер!*\n👤 {data['name']}\n📞 {data['contact']}\n🎟 Промокод: {promo}",
-            parse_mode="Markdown"
-        )
-    await state.clear()
-
-# ========== ОТДЕЛ 2: ДИЗАЙНЕРЫ ==========
-@dp.message(F.text == "🎨 Стать дизайнером")
-async def start_designer_reg(message: types.Message, state: FSMContext):
-    await state.set_state(DesignerReg.name)
-    await message.answer(
-        "🎨 *Регистрация 3D дизайнера*\n\nКак вас зовут?",
-        reply_markup=cancel_kb,
-        parse_mode="Markdown"
-    )
-
-@dp.message(DesignerReg.name)
-async def designer_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await state.set_state(DesignerReg.experience)
-    await message.answer("⏱ *Стаж работы* (в годах):", parse_mode="Markdown")
-
-@dp.message(DesignerReg.experience)
-async def designer_experience(message: types.Message, state: FSMContext):
-    await state.update_data(experience=message.text)
-    await state.set_state(DesignerReg.skills)
-    await message.answer("🛠 *В каких программах работаете?* (Blender, Fusion360, SolidWorks):", parse_mode="Markdown")
-
-@dp.message(DesignerReg.skills)
-async def designer_skills(message: types.Message, state: FSMContext):
-    await state.update_data(skills=message.text)
-    await state.set_state(DesignerReg.portfolio)
-    await message.answer("📎 *Ссылка на портфолио* (Google Drive, Behance, Instagram):", parse_mode="Markdown")
-
-@dp.message(DesignerReg.portfolio)
-async def designer_portfolio(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    
-    designer = {
-        "user_id": message.from_user.id,
-        "username": message.from_user.username,
-        "name": data["name"],
-        "experience": data["experience"],
-        "skills": data["skills"],
-        "portfolio": message.text,
-        "status": "pending",
-        "created_at": str(datetime.now())
-    }
-    
-    designers = load_json(DESIGNERS_FILE)
-    designers[str(message.from_user.id)] = designer
-    save_json(DESIGNERS_FILE, designers)
-    
-    await message.answer(
-        "✅ *Заявка отправлена!*\n\nЕсли одобрят — с вами свяжутся.",
-        reply_markup=main_menu,
-        parse_mode="Markdown"
-    )
-    
-    if ADMIN_ID:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Принять", callback_data=f"accept_designer_{message.from_user.id}"),
-             InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_designer_{message.from_user.id}")]
-        ])
-        await bot.send_message(
-            ADMIN_ID,
-            f"🔔 *Новая заявка дизайнера!*\n👤 {data['name']}\n⏱ Стаж: {data['experience']} лет\n🛠 {data['skills']}\n📎 {message.text}",
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-    await state.clear()
-
-# ========== ОТДЕЛ 3: ФИЛИАЛЫ ==========
-@dp.message(F.text == "🏭 Стать частью фирмы")
-async def start_franchise_reg(message: types.Message, state: FSMContext):
-    await state.set_state(FranchiseReg.name)
-    await message.answer(
-        "🏭 *Регистрация филиала*\n\nКак вас зовут?",
-        reply_markup=cancel_kb,
-        parse_mode="Markdown"
-    )
-
-@dp.message(FranchiseReg.name)
-async def franchise_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await state.set_state(FranchiseReg.city)
-    await message.answer("📍 *Из какого вы города?*", parse_mode="Markdown")
-
-@dp.message(FranchiseReg.city)
-async def franchise_city(message: types.Message, state: FSMContext):
-    await state.update_data(city=message.text)
-    await state.set_state(FranchiseReg.printer_model)
-    await message.answer("🖨️ *Какая модель 3D принтера?*", parse_mode="Markdown")
-
-@dp.message(FranchiseReg.printer_model)
-async def franchise_printer(message: types.Message, state: FSMContext):
-    await state.update_data(printer_model=message.text)
-    await state.set_state(FranchiseReg.contact)
-    await message.answer("📞 *Контакты для связи* (телефон / Telegram):", parse_mode="Markdown")
-
-@dp.message(FranchiseReg.contact)
-async def franchise_contact(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    
-    franchise = {
-        "user_id": message.from_user.id,
-        "username": message.from_user.username,
-        "name": data["name"],
-        "city": data["city"],
-        "printer_model": data["printer_model"],
-        "contact": message.text,
-        "status": "pending",
-        "created_at": str(datetime.now())
-    }
-    
-    franchises = load_json(FRANCHISE_FILE)
-    franchises[str(message.from_user.id)] = franchise
-    save_json(FRANCHISE_FILE, franchises)
-    
-    await message.answer(
-        "✅ *Заявка отправлена!*\n\nЕсли одобрят — вы станете частью фирмы (80% вам, 20% нам).",
-        reply_markup=main_menu,
-        parse_mode="Markdown"
-    )
-    
-    if ADMIN_ID:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"accept_franchise_{message.from_user.id}"),
-             InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_franchise_{message.from_user.id}")]
-        ])
-        await bot.send_message(
-            ADMIN_ID,
-            f"🔔 *Новый филиал!*\n👤 {data['name']}\n📍 {data['city']}\n🖨 {data['printer_model']}\n📞 {message.text}",
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-    await state.clear()
-
-# ========== ОСНОВНАЯ ЗАЯВКА (СОХРАНЯЕМ ПОЛНОСТЬЮ) ==========
-@dp.message(F.text == "📝 Оставить заявку")
-async def start_order(message: types.Message, state: FSMContext):
-    await state.set_state(OrderForm.legal_accept)
-    await message.answer(
-        LEGAL_TEXT + "\n\n⬇️ *Для продолжения примите условия* ⬇️",
+        "📋 *Выберите заказ для создания квитанции:*\n\n"
+        "⚠️ ВНИМАНИЕ: Это информационная квитанция, не являющаяся фискальным чеком",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Принимаю условия", callback_data="accept_legal")]
-        ])
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
     )
 
-@dp.callback_query(lambda c: c.data == "accept_legal")
-async def handle_legal(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("✅ *Условия приняты!* Продолжаем оформление заявки.", parse_mode="Markdown")
-    await state.set_state(OrderForm.name)
+@dp.callback_query(lambda c: c.data.startswith("create_invoice_"))
+async def start_invoice_fill(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("❌ Только для админа")
+        return
+    
+    order_id = callback.data.split("_")[2]
+    await state.update_data(order_id=order_id)
+    
+    await state.set_state(InvoiceForm.price)
     await callback.message.answer(
-        "🔹 *Как вас зовут?*\n\nНапишите ваше имя:",
-        reply_markup=cancel_kb,
+        "💰 *Создание квитанции*\n\n"
+        "Введите стоимость (в рублях):\n"
+        "Пример: `1500`",
         parse_mode="Markdown"
     )
     await callback.answer()
 
-@dp.message(F.text == "❌ Отмена")
-async def cancel_order(message: types.Message, state: FSMContext):
-    await state.clear()
-    await message.answer(
-        "❌ Заявка отменена.\n\nЕсли передумаете, нажмите 📝 Оставить заявку",
-        reply_markup=main_menu if message.from_user.id != ADMIN_ID else admin_menu
-    )
-
-@dp.message(OrderForm.name)
-async def get_name(message: types.Message, state: FSMContext):
-    if len(message.text) < 2:
-        await message.answer("❌ Пожалуйста, введите корректное имя (минимум 2 символа)")
-        return
-    
-    await state.update_data(name=message.text)
-    await state.set_state(OrderForm.contact)
-    await message.answer(
-        "🔹 *Где вам удобно связаться?*\n\n"
-        "📱 Номер телефона\n"
-        "📧 Email\n"
-        "Или напишите 'пропустить' - буду писать сюда в Telegram\n\n"
-        "Введите контактные данные:",
-        reply_markup=cancel_kb,
-        parse_mode="Markdown"
-    )
-
-@dp.message(OrderForm.contact)
-async def get_contact(message: types.Message, state: FSMContext):
-    contact = message.text.strip()
-    if not contact or contact.lower() == "пропустить":
-        username = message.from_user.username
-        if username:
-            contact = f"Telegram: @{username}"
-        else:
-            contact = f"Telegram ID: {message.from_user.id}"
-    
-    await state.update_data(contact=contact)
-    await state.set_state(OrderForm.delivery)
-    await message.answer(
-        "🔹 *Как получить готовый заказ?*\n\nВыберите способ получения:",
-        reply_markup=delivery_kb,
-        parse_mode="Markdown"
-    )
-
-@dp.message(OrderForm.delivery)
-async def get_delivery(message: types.Message, state: FSMContext):
-    if "Самовывоз" in message.text:
-        delivery = "🚗 Самовывоз (адрес сообщу после оплаты)"
-    elif "Почта" in message.text:
-        delivery = "📦 Отправка Почтой России (доставка за счет клиента)"
-    elif "СДЭК" in message.text:
-        delivery = "🚚 Отправка СДЭК (доставка за счет клиента)"
-    else:
-        await message.answer("❌ Пожалуйста, выберите способ получения из кнопок")
-        return
-    
-    await state.update_data(delivery=delivery)
-    await state.set_state(OrderForm.promo)
-    await message.answer(
-        "🎟 *Есть промокод?*\n\nВведите промокод или напишите 'пропустить':",
-        reply_markup=cancel_kb,
-        parse_mode="Markdown"
-    )
-
-@dp.message(OrderForm.promo)
-async def get_promo(message: types.Message, state: FSMContext):
-    promo = None if message.text.lower() == "пропустить" else message.text.upper()
-    if promo:
-        promocodes = load_json(PROMOCODES_FILE)
-        if promo in promocodes and not promocodes[promo]["used"]:
-            await state.update_data(promo=promo)
-            await message.answer(f"✅ Промокод *{promo}* активирован! Вы получите скидку 10% после оплаты.", parse_mode="Markdown")
-        else:
-            await message.answer("❌ Неверный или уже использованный промокод. Продолжаем без скидки.")
-            await state.update_data(promo=None)
-    else:
-        await state.update_data(promo=None)
-    
-    await state.set_state(OrderForm.model_type)
-    await message.answer(
-        "🔹 *У вас есть готовая модель?*\n\nВыберите вариант:",
-        reply_markup=model_type_kb,
-        parse_mode="Markdown"
-    )
-
-@dp.message(OrderForm.model_type)
-async def get_model_type(message: types.Message, state: FSMContext):
-    if "готовая модель" in message.text:
-        await state.update_data(model_type="ready", files=[])
-        await state.set_state(OrderForm.waiting_files)
-        await message.answer(
-            "📁 *Отправьте файл модели*\n\n"
-            "Поддерживаемые форматы: STL, OBJ, 3MF\n\n"
-            "⚠️ *Важно:* Перед отправкой проверьте модель на ошибки!\n"
-            "Исполнитель не гарантирует качество печати при геометрических ошибках.\n\n"
-            "📌 Можно отправить несколько файлов.\n"
-            "Когда закончите, напишите *готово*",
-            reply_markup=cancel_kb,
-            parse_mode="Markdown"
-        )
-    elif "сделать модель" in message.text or "Blender" in message.text:
-        await state.update_data(model_type="need_design", files=[])
-        await state.set_state(OrderForm.description)
-        await message.answer(
-            "🎨 *Опишите, что нужно смоделировать*\n\n"
-            "Укажите:\n"
-            "• Назначение детали\n"
-            "• Примерные размеры\n"
-            "• Особенности формы\n"
-            "• Ссылки на референсы (если есть)\n\n"
-            "Чем подробнее описание, тем точнее будет результат!\n\n"
-            "💰 Стоимость дизайна обсуждается индивидуально.",
-            reply_markup=cancel_kb,
-            parse_mode="Markdown"
-        )
-    else:
-        await message.answer("❌ Пожалуйста, выберите вариант из кнопок")
-
-@dp.message(OrderForm.waiting_files)
-async def get_files(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    files = data.get("files", [])
-    
-    if message.document:
-        file_name = message.document.file_name
-        ext = file_name.split('.')[-1].lower() if '.' in file_name else ''
-        
-        if ext not in ['stl', 'obj', '3mf', 'step']:
-            await message.answer(
-                "❌ Неподдерживаемый формат файла.\n"
-                "Отправьте файлы в формате: STL, OBJ, 3MF"
-            )
-            return
-        
-        files.append({
-            "file_id": message.document.file_id,
-            "name": file_name
-        })
-        await state.update_data(files=files)
-        await message.answer(
-            f"✅ Файл *{file_name}* добавлен.\n"
-            f"Всего файлов: {len(files)}\n\n"
-            "Можете отправить еще или напишите *готово*",
-            parse_mode="Markdown"
-        )
-    
-    elif message.text and message.text.lower() == "готово":
-        if not files:
-            await message.answer(
-                "❌ Вы не отправили ни одного файла.\n"
-                "Пожалуйста, отправьте хотя бы один файл модели"
-            )
-            return
-        
-        await state.set_state(OrderForm.description)
-        await message.answer(
-            "📝 *Опишите пожелания по печати:*\n\n"
-            "• Материал (PLA, ABS, PETG, смола)\n"
-            "• Цвет\n"
-            "• Качество печати (черновая/стандартная/высокая)\n"
-            "• Сроки\n"
-            "• Особые требования\n\n"
-            "Напишите все, что считаете важным:",
-            reply_markup=cancel_kb,
-            parse_mode="Markdown"
-        )
-    else:
-        await message.answer(
-            "📁 Отправьте файл модели или напишите *готово*",
-            reply_markup=cancel_kb
-        )
-
-@dp.message(OrderForm.description)
-async def get_description(message: types.Message, state: FSMContext):
-    await state.update_data(description=message.text)
-    
-    user_data = await state.get_data()
-    user_id = message.from_user.id
-    promo = user_data.get("promo")
-    order_id = generate_order_id()
-    
-    order = {
-        "order_id": order_id,
-        "user_id": user_id,
-        "username": message.from_user.username,
-        "full_name": message.from_user.full_name,
-        "name": user_data["name"],
-        "contact": user_data["contact"],
-        "delivery": user_data["delivery"],
-        "promocode": promo,
-        "model_type": user_data["model_type"],
-        "files": user_data.get("files", []),
-        "description": user_data["description"],
-        "status": "new",
-        "legal_accepted": True,
-        "created_at": str(datetime.now()),
-        "price": None,
-        "final_price": None
-    }
-    
-    orders = load_json(ORDERS_FILE)
-    orders[order_id] = order
-    save_json(ORDERS_FILE, orders)
-    
-    await message.answer(
-        "✅ *Заявка успешно отправлена!*\n\n"
-        f"🆔 Номер заказа: `{order_id}`\n\n"
-        "Я передал её оператору.\n"
-        "Статус заявки можно проверить командой /status\n\n"
-        "📜 Напоминаем: работа начинается только после 100% предоплаты.",
-        reply_markup=main_menu if message.from_user.id != ADMIN_ID else admin_menu,
-        parse_mode="Markdown"
-    )
-    
-    if ADMIN_ID:
-        await notify_admin(order, user_id)
-    
-    await state.clear()
-
-async def generate_receipt(order: dict) -> BytesIO:
-    """Генерация чека в виде изображения"""
-    img = Image.new('RGB', (800, 1000), color='white')
-    draw = ImageDraw.Draw(img)
-    
+@dp.message(InvoiceForm.price)
+async def invoice_price(message: types.Message, state: FSMContext):
     try:
-        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-        font_normal = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+        price = int(message.text)
+        await state.update_data(price=price)
+        await state.set_state(InvoiceForm.material)
+        await message.answer(
+            "🖨️ *Материал:*\n\n"
+            "Напишите материал:\n"
+            "PLA / PETG / ABS / Смола / Другое",
+            parse_mode="Markdown"
+        )
     except:
-        font_title = ImageFont.load_default()
-        font_normal = ImageFont.load_default()
-    
-    y = 50
-    draw.text((50, y), "🧾 ЧЕК ОБ ОПЛАТЕ", fill='black', font=font_title)
-    y += 60
-    
-    receipt_data = [
-        ("Номер заказа", order.get("order_id", "Нет")),
-        ("Дата", datetime.now().strftime("%d.%m.%Y %H:%M")),
-        ("Клиент", f"{order.get('name', 'Нет')} (@{order.get('username', 'Нет username')})"),
-        ("Тип", "Готовая модель" if order.get("model_type") == "ready" else "Дизайн + печать"),
-        ("Сумма", f"{order.get('price', 0)} ₽"),
-        ("Статус", "Оплачено"),
-        ("Способ получения", order.get("delivery", "Не указан")),
-        ("Промокод", order.get("promocode", "Не использован")),
-    ]
-    
-    for label, value in receipt_data:
-        draw.text((50, y), f"{label}:", fill='black', font=font_normal)
-        draw.text((250, y), str(value), fill='black', font=font_normal)
-        y += 40
-    
-    draw.text((50, y), "Спасибо за заказ!", fill='black', font=font_title)
-    
-    qr_data = f"Заказ: {order.get('order_id')}\nСумма: {order.get('price', 0)}₽\nДата: {datetime.now()}"
-    qr_img = generate_qr(qr_data)
-    qr_pil = Image.open(qr_img)
-    qr_pil = qr_pil.resize((200, 200))
-    img.paste(qr_pil, (300, y + 20))
-    
-    img_bytes = BytesIO()
-    img.save(img_bytes, format='PNG')
-    img_bytes.seek(0)
-    return img_bytes
+        await message.answer("❌ Введите число")
 
-async def notify_admin(order: dict, user_id: int):
-    model_type_text = "✅ Готовая модель" if order["model_type"] == "ready" else "🎨 Требуется дизайн в Blender"
-    
-    text = (
-        f"🔔 *НОВАЯ ЗАЯВКА!*\n"
-        f"{'='*30}\n\n"
-        f"🆔 *Номер:* {order['order_id']}\n"
-        f"👤 *Клиент:* {order['name']}\n"
-        f"🆔 *Telegram ID:* {user_id}\n"
-        f"📱 *Username:* @{order['username'] or 'Нет'}\n"
-        f"📞 *Контакт:* {order['contact']}\n"
-        f"🚚 *Доставка:* {order['delivery']}\n\n"
-        f"🖨️ *Тип:* {model_type_text}\n\n"
-        f"📝 *Пожелания:*\n{order['description']}\n"
+@dp.message(InvoiceForm.material)
+async def invoice_material(message: types.Message, state: FSMContext):
+    await state.update_data(material=message.text)
+    await state.set_state(InvoiceForm.color)
+    await message.answer("🎨 *Цвет:*\n\nБелый / Черный / Красный / Другой", parse_mode="Markdown")
+
+@dp.message(InvoiceForm.color)
+async def invoice_color(message: types.Message, state: FSMContext):
+    await state.update_data(color=message.text)
+    await state.set_state(InvoiceForm.quantity)
+    await message.answer("🔢 *Количество деталей:*\n\nВведите число", parse_mode="Markdown")
+
+@dp.message(InvoiceForm.quantity)
+async def invoice_quantity(message: types.Message, state: FSMContext):
+    try:
+        quantity = int(message.text)
+        await state.update_data(quantity=quantity)
+        await state.set_state(InvoiceForm.discount)
+        await message.answer(
+            "🎁 *Скидка:*\n\n"
+            "Введите размер скидки (в %):\n"
+            "0 - без скидки",
+            parse_mode="Markdown"
+        )
+    except:
+        await message.answer("❌ Введите число")
+
+@dp.message(InvoiceForm.discount)
+async def invoice_discount(message: types.Message, state: FSMContext):
+    try:
+        discount = int(message.text)
+        await state.update_data(discount=discount)
+        await state.set_state(InvoiceForm.delivery_price)
+        await message.answer(
+            "🚚 *Стоимость доставки:*\n\n"
+            "0 - самовывоз\n"
+            "300 - Почта\n"
+            "500 - СДЭК",
+            parse_mode="Markdown"
+        )
+    except:
+        await message.answer("❌ Введите число")
+
+@dp.message(InvoiceForm.delivery_price)
+async def invoice_delivery_price(message: types.Message, state: FSMContext):
+    try:
+        delivery_price = int(message.text)
+        await state.update_data(delivery_price=delivery_price)
+        await state.set_state(InvoiceForm.delivery_address)
+        
+        if delivery_price == 0:
+            await state.update_data(delivery_address="Самовывоз")
+            await state.set_state(InvoiceForm.payment_method)
+            await message.answer(
+                "💳 *Способ оплаты:*\n\n"
+                "Напишите способ оплаты:\n"
+                "Карта / СБП / Наличные",
+                parse_mode="Markdown"
+            )
+        else:
+            await message.answer("📍 *Адрес доставки:*\n\nВведите полный адрес", parse_mode="Markdown")
+    except:
+        await message.answer("❌ Введите число")
+
+@dp.message(InvoiceForm.delivery_address)
+async def invoice_address(message: types.Message, state: FSMContext):
+    await state.update_data(delivery_address=message.text)
+    await state.set_state(InvoiceForm.payment_method)
+    await message.answer(
+        "💳 *Способ оплаты:*\n\n"
+        "Напишите способ оплаты:\n"
+        "Карта / СБП / Наличные",
+        parse_mode="Markdown"
     )
+
+@dp.message(InvoiceForm.payment_method)
+async def invoice_payment_method(message: types.Message, state: FSMContext):
+    await state.update_data(payment_method=message.text)
+    await state.set_state(InvoiceForm.tracking_number)
+    await message.answer(
+        "📦 *Трек-номер (опционально):*\n\n"
+        "Введите трек-номер или напишите 'пропустить'",
+        parse_mode="Markdown"
+    )
+
+@dp.message(InvoiceForm.tracking_number)
+async def invoice_tracking(message: types.Message, state: FSMContext):
+    tracking = None if message.text.lower() == "пропустить" else message.text
+    await state.update_data(tracking_number=tracking)
+    await state.set_state(InvoiceForm.ready_days)
+    await message.answer(
+        "⏱ *Срок готовности:*\n\n"
+        "Через сколько дней заказ будет готов?\n"
+        "Пример: 3 дня",
+        parse_mode="Markdown"
+    )
+
+@dp.message(InvoiceForm.ready_days)
+async def invoice_ready(message: types.Message, state: FSMContext):
+    await state.update_data(ready_days=message.text)
+    await state.set_state(InvoiceForm.future_promo)
+    await message.answer(
+        "🎟 *Промокод на будущее (опционально):*\n\n"
+        "Введите промокод для следующего заказа или 'пропустить'",
+        parse_mode="Markdown"
+    )
+
+@dp.message(InvoiceForm.future_promo)
+async def invoice_future_promo(message: types.Message, state: FSMContext):
+    promo = None if message.text.lower() == "пропустить" else message.text
+    await state.update_data(future_promo=promo)
+    await state.set_state(InvoiceForm.comment)
+    await message.answer(
+        "📝 *Комментарий (опционально):*\n\n"
+        "Напишите комментарий или 'пропустить'",
+        parse_mode="Markdown"
+    )
+
+@dp.message(InvoiceForm.comment)
+async def invoice_comment(message: types.Message, state: FSMContext):
+    comment = None if message.text.lower() == "пропустить" else message.text
+    await state.update_data(comment=comment)
     
-    if order.get("promocode"):
-        text += f"\n🎟 *Промокод:* {order['promocode']}\n"
+    data = await state.get_data()
+    orders = load_json(ORDERS_FILE)
+    order = orders.get(data["order_id"], {})
     
-    if order.get("files"):
-        text += f"\n📁 *Файлов:* {len(order['files'])} шт.\n"
+    # Предпросмотр
+    preview = f"""
+📋 *ПРЕДПРОСМОТР КВИТАНЦИИ*
+
+💰 Стоимость: {data['price']} ₽
+🖨️ Материал: {data['material']}
+🎨 Цвет: {data['color']}
+🔢 Количество: {data['quantity']} шт.
+🎁 Скидка: {data['discount']}%
+🚚 Доставка: {data['delivery_price']} ₽
+📍 Адрес: {data['delivery_address']}
+💳 Оплата: {data['payment_method']}
+📦 Трек-номер: {data['tracking_number'] or 'Нет'}
+⏱ Срок: {data['ready_days']}
+🎟 Промокод: {data['future_promo'] or 'Нет'}
+
+👤 Клиент: {order.get('name')}
+🆔 Username: @{order.get('username', 'Нет')}
+
+⚠️ Данная квитанция не является фискальным чеком
+    """
     
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Написать клиенту", url=f"tg://user?id={user_id}")],
-        [InlineKeyboardButton(text="✅ Принять", callback_data=f"accept_order_{order['order_id']}"),
-         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_order_{order['order_id']}")]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить квитанцию", callback_data="send_invoice_confirm")],
+        [InlineKeyboardButton(text="🔄 Заполнить заново", callback_data="invoice_restart")]
     ])
     
-    await bot.send_message(ADMIN_ID, text, parse_mode="Markdown", reply_markup=kb)
-    
-    if order.get("files"):
-        for file in order["files"]:
-            await bot.send_document(ADMIN_ID, file["file_id"], caption=file["name"])
+    await state.set_state(InvoiceForm.confirm)
+    await message.answer(preview, parse_mode="Markdown", reply_markup=keyboard)
 
-# ========== АДМИН-ФУНКЦИИ (НОВЫЕ) ==========
+@dp.callback_query(lambda c: c.data == "send_invoice_confirm")
+async def send_invoice(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    orders = load_json(ORDERS_FILE)
+    order = orders.get(data["order_id"], {})
+    
+    payment_data = {
+        "price": data["price"],
+        "material": data["material"],
+        "color": data["color"],
+        "quantity": data["quantity"],
+        "discount": data["discount"],
+        "delivery_price": data["delivery_price"],
+        "delivery_address": data["delivery_address"],
+        "payment_method": data["payment_method"],
+        "tracking_number": data.get("tracking_number"),
+        "ready_days": data.get("ready_days"),
+        "future_promo": data.get("future_promo"),
+        "comment": data.get("comment"),
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "inn": "1234567890",
+        "ogrnip": "123456789012345"
+    }
+    
+    # Обновляем заказ
+    orders[data["order_id"]]["price"] = data["price"]
+    final_price = data["price"] * (100 - data["discount"]) / 100 + data["delivery_price"]
+    orders[data["order_id"]]["final_price"] = final_price
+    orders[data["order_id"]]["status"] = "accepted"
+    orders[data["order_id"]]["tracking_number"] = data.get("tracking_number")
+    save_json(ORDERS_FILE, orders)
+    
+    # Генерируем квитанцию
+    invoice_img = await generate_invoice(order, payment_data)
+    
+    # Отправляем пользователю
+    await bot.send_photo(
+        order["user_id"],
+        types.BufferedInputFile(invoice_img.getvalue(), filename=f"invoice_{data['order_id']}.png"),
+        caption=f"📋 *КВИТАНЦИЯ ОБ ОПЛАТЕ*\n\n"
+                f"🆔 Заказ: `{data['order_id']}`\n"
+                f"💰 Сумма к оплате: {final_price:.2f} ₽\n\n"
+                f"💳 *Реквизиты для оплаты:*\n"
+                f"Карта: **** 1234\n"
+                f"Получатель: Иван Иванов\n"
+                f"Сумма: {final_price:.2f} ₽\n\n"
+                f"✅ После оплаты пришлите скриншот\n"
+                f"⚠️ Данная квитанция не является фискальным чеком",
+        parse_mode="Markdown"
+    )
+    
+    await callback.message.answer(f"✅ Квитанция отправлена пользователю @{order.get('username', order['name'])}")
+    await state.clear()
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "invoice_restart")
+async def restart_invoice(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("🔄 Начинаем заполнение квитанции заново...")
+    await callback.message.answer("💰 Введите стоимость:")
+    await callback.answer()
+
+# ========== ОСТАЛЬНЫЕ АДМИН-ФУНКЦИИ ==========
 @dp.message(F.text == "📊 Статистика")
 async def admin_stats(message: types.Message):
     if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Только для админа")
         return
     
     orders = load_json(ORDERS_FILE)
@@ -971,15 +941,15 @@ async def admin_stats(message: types.Message):
     avg_rating = sum([r["rating"] for r in reviews.values()]) / len(reviews) if reviews else 0
     total_revenue = sum([o.get("price", 0) for o in orders.values() if o.get("price")])
     
-    text = (
-        f"📊 *СТАТИСТИКА БОТА*\n\n"
-        f"👥 Пользователей: {total_users}\n"
-        f"📦 Всего заказов: {total_orders}\n"
-        f"✅ Завершено: {completed_orders}\n"
-        f"⭐ Средний рейтинг: {avg_rating:.1f}/5\n"
-        f"💰 Выручка: {total_revenue}₽"
-    )
-    
+    text = f"""
+📊 *СТАТИСТИКА БОТА*
+
+👥 Пользователей: {total_users}
+📦 Всего заказов: {total_orders}
+✅ Завершено: {completed_orders}
+⭐ Средний рейтинг: {avg_rating:.1f}/5
+💰 Выручка: {total_revenue}₽
+    """
     await message.answer(text, parse_mode="Markdown")
 
 @dp.message(F.text == "📈 Отчеты")
@@ -993,8 +963,7 @@ async def admin_reports(message: types.Message):
         [InlineKeyboardButton(text="📊 За год", callback_data="report_year"),
          InlineKeyboardButton(text="📈 За все время", callback_data="report_all")]
     ])
-    
-    await message.answer("📊 *Выберите период для отчета:*", parse_mode="Markdown", reply_markup=keyboard)
+    await message.answer("📊 *Выберите период*", parse_mode="Markdown", reply_markup=keyboard)
 
 @dp.callback_query(lambda c: c.data.startswith("report_"))
 async def generate_report(callback: types.CallbackQuery):
@@ -1029,35 +998,8 @@ async def generate_report(callback: types.CallbackQuery):
     total_revenue = sum([o.get("price", 0) for o in filtered_orders if o.get("price")])
     avg_price = total_revenue / total_orders if total_orders else 0
     
-    status_counts = defaultdict(int)
-    for order in filtered_orders:
-        status_counts[order.get("status", "new")] += 1
-    
-    text = f"📊 *Отчет за {period_name}*\n\n"
-    text += f"📦 Заказов: {total_orders}\n"
-    text += f"💰 Выручка: {total_revenue}₽\n"
-    text += f"💵 Средний чек: {avg_price:.0f}₽\n\n"
-    text += "*По статусам:*\n"
-    for status, count in status_counts.items():
-        text += f"• {ORDER_STATUSES.get(status, status)}: {count}\n"
-    
-    import csv
-    csv_file = f"report_{period}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    with open(csv_file, 'w', encoding='utf-8', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["Номер заказа", "Клиент", "Статус", "Сумма", "Дата"])
-        for order in filtered_orders:
-            writer.writerow([
-                order.get("order_id", "Нет"),
-                order.get("name", "Нет"),
-                ORDER_STATUSES.get(order.get("status", "new"), order.get("status", "new")),
-                order.get("price", 0),
-                order["created_at"][:10]
-            ])
-    
+    text = f"📊 *Отчет за {period_name}*\n\n📦 Заказов: {total_orders}\n💰 Выручка: {total_revenue}₽\n💵 Средний чек: {avg_price:.0f}₽"
     await callback.message.answer(text, parse_mode="Markdown")
-    await callback.message.answer_document(FSInputFile(csv_file))
-    os.remove(csv_file)
     await callback.answer()
 
 @dp.message(F.text == "💰 Запросы скидок")
@@ -1069,15 +1011,12 @@ async def view_discount_requests(message: types.Message):
     pending = {k: v for k, v in requests.items() if v.get("status") == "pending"}
     
     if not pending:
-        await message.answer("❌ Нет активных запросов на скидку")
+        await message.answer("❌ Нет активных запросов")
         return
     
     text = "💰 *Запросы на скидку:*\n\n"
-    for req_id, req in list(pending.items())[:10]:
-        text += f"👤 @{req.get('username', 'Нет')}\n"
-        text += f"📝 {req.get('reason', 'Нет')[:100]}\n"
-        text += f"📅 {req.get('created_at', '')[:10]}\n\n"
-    
+    for req in list(pending.values())[:10]:
+        text += f"👤 @{req.get('username', 'Нет')}\n📝 {req.get('reason', '')[:100]}\n\n"
     await message.answer(text, parse_mode="Markdown")
 
 @dp.message(F.text == "⭐ Отзывы")
@@ -1092,24 +1031,8 @@ async def view_reviews(message: types.Message):
     
     text = "⭐ *Последние отзывы:*\n\n"
     for review in list(reviews.values())[-10:]:
-        text += f"👤 @{review.get('username', 'Нет')}\n"
-        text += f"⭐ {review.get('rating', 0)}/5\n"
-        text += f"📝 {review.get('text', '')[:100]}\n"
-        text += f"📅 {review.get('created_at', '')[:10]}\n\n"
-    
+        text += f"👤 @{review.get('username', 'Нет')}\n⭐ {review.get('rating', 0)}/5\n📝 {review.get('text', '')[:100]}\n\n"
     await message.answer(text, parse_mode="Markdown")
-
-@dp.message(F.text == "🎟 Управление промокодами")
-async def manage_promocodes(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Создать промокод", callback_data="create_promo")],
-        [InlineKeyboardButton(text="📋 Список промокодов", callback_data="list_promos")]
-    ])
-    
-    await message.answer("🎟 *Управление промокодами*", parse_mode="Markdown", reply_markup=keyboard)
 
 @dp.message(F.text == "📦 Все заказы")
 async def all_orders_admin(message: types.Message):
@@ -1123,12 +1046,7 @@ async def all_orders_admin(message: types.Message):
     
     text = "📦 *Все заказы:*\n\n"
     for order in list(orders.values())[-20:]:
-        text += f"🔹 *{order.get('order_id', 'Нет')}*\n"
-        text += f"   👤 {order.get('name', 'Нет')}\n"
-        text += f"   📊 {ORDER_STATUSES.get(order.get('status', 'new'), order.get('status', 'new'))}\n"
-        text += f"   💰 {order.get('price', 'Не указана')}₽\n"
-        text += f"   📅 {order.get('created_at', '')[:10]}\n\n"
-    
+        text += f"🔹 *{order.get('order_id', 'Нет')}*\n   👤 {order.get('name')}\n   📊 {ORDER_STATUSES.get(order.get('status'), 'new')}\n   💰 {order.get('price', '?')}₽\n\n"
     await message.answer(text, parse_mode="Markdown")
 
 @dp.message(F.text == "👥 Пользователи")
@@ -1139,11 +1057,7 @@ async def list_users(message: types.Message):
     users = load_json(USERS_FILE)
     text = "👥 *Пользователи:*\n\n"
     for user in list(users.values())[-20:]:
-        text += f"👤 @{user.get('username', 'Нет username')}\n"
-        text += f"   📦 Заказов: {user.get('total_orders', 0)}\n"
-        text += f"   💰 Потрачено: {user.get('total_spent', 0)}₽\n"
-        text += f"   📅 {user.get('first_seen', '')[:10]}\n\n"
-    
+        text += f"👤 @{user.get('username', 'Нет')}\n   📦 Заказов: {user.get('total_orders', 0)}\n   💰 Потрачено: {user.get('total_spent', 0)}₽\n\n"
     await message.answer(text, parse_mode="Markdown")
 
 @dp.message(F.text == "🔄 Изменить статус")
@@ -1155,152 +1069,209 @@ async def change_status_menu(message: types.Message):
     keyboard = []
     for order_id, order in list(orders.items())[-10:]:
         keyboard.append([InlineKeyboardButton(
-            text=f"#{order.get('order_id', order_id)} - {order.get('name', 'Нет')}",
-            callback_data=f"select_order_{order_id}"
+            text=f"#{order.get('order_id', order_id)}",
+            callback_data=f"select_order_status_{order_id}"
         )])
     
-    await message.answer("📦 *Выберите заказ для изменения статуса:*", 
-                        parse_mode="Markdown",
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    await message.answer("📦 *Выберите заказ:*", reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
 
-@dp.callback_query(lambda c: c.data.startswith("select_order_"))
+@dp.callback_query(lambda c: c.data.startswith("select_order_status_"))
 async def select_order_for_status(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("❌ Только для админа")
         return
     
-    order_id = callback.data.split("_")[2]
+    order_id = callback.data.split("_")[3]
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Принят", callback_data=f"set_status_{order_id}_accepted")],
         [InlineKeyboardButton(text="🔧 В работе", callback_data=f"set_status_{order_id}_in_progress")],
         [InlineKeyboardButton(text="⚡ Почти готов", callback_data=f"set_status_{order_id}_almost_ready")],
         [InlineKeyboardButton(text="🎉 Готов", callback_data=f"set_status_{order_id}_ready")],
-        [InlineKeyboardButton(text="🏁 Завершен", callback_data=f"set_status_{order_id}_completed")],
-        [InlineKeyboardButton(text="❌ Отклонен", callback_data=f"set_status_{order_id}_rejected")]
+        [InlineKeyboardButton(text="🏁 Завершен", callback_data=f"set_status_{order_id}_completed")]
     ])
     
-    await callback.message.edit_text(f"🎯 *Выберите новый статус для заказа {order_id}:*", 
-                                     parse_mode="Markdown",
-                                     reply_markup=keyboard)
-
-@dp.callback_query(lambda c: c.data.startswith(("set_status_", "accept_order_", "reject_order_", "accept_designer_", "reject_designer_", "accept_franchise_", "reject_franchise_", "approve_discount_")))
-async def handle_admin_actions(callback: types.CallbackQuery):
-    if ADMIN_ID and callback.from_user.id != ADMIN_ID:
-        await callback.answer("❌ Только для админа", show_alert=True)
-        return
-    
-    action = callback.data.split("_")[0]
-    
-    # Принятие/отклонение заказа
-    if action in ["accept", "reject"] and "order" in callback.data:
-        _, action, order_id = callback.data.split("_")
-        orders = load_json(ORDERS_FILE)
-        
-        if order_id in orders:
-            if action == "accept":
-                orders[order_id]["status"] = "accepted"
-                save_json(ORDERS_FILE, orders)
-                await bot.send_message(
-                    orders[order_id]["user_id"],
-                    f"✅ *Ваша заявка {order_id} принята!*\n\nСкоро свяжемся для согласования цены.",
-                    parse_mode="Markdown"
-                )
-                # Запрашиваем цену у админа
-                await callback.message.answer(f"💰 Введите цену для заказа {order_id} в рублях:")
-                # Сохраняем для установки цены
-                await callback.message.answer("(просто отправьте число)")
-            else:
-                orders[order_id]["status"] = "rejected"
-                save_json(ORDERS_FILE, orders)
-                await bot.send_message(
-                    orders[order_id]["user_id"],
-                    f"❌ *Заявка {order_id} отклонена.*\n\nПо вопросам пишите администратору.",
-                    parse_mode="Markdown"
-                )
-            await callback.message.edit_text(f"✅ Заказ {order_id} {action}ен")
-    
-    # Изменение статуса заказа
-    elif action == "set":
-        _, _, order_id, status = callback.data.split("_")
-        orders = load_json(ORDERS_FILE)
-        
-        if order_id in orders:
-            old_status = orders[order_id].get("status", "new")
-            orders[order_id]["status"] = status
-            save_json(ORDERS_FILE, orders)
-            
-            status_text = ORDER_STATUSES.get(status, status)
-            await bot.send_message(
-                orders[order_id]["user_id"],
-                f"🔄 *Статус заказа {order_id} обновлен!*\n\n📊 Новый статус: {status_text}",
-                parse_mode="Markdown"
-            )
-            
-            # Если заказ завершен, обновляем статистику пользователя
-            if status == "completed":
-                users = load_json(USERS_FILE)
-                user_id = str(orders[order_id]["user_id"])
-                if user_id in users:
-                    users[user_id]["total_orders"] = users[user_id].get("total_orders", 0) + 1
-                    users[user_id]["total_spent"] = users[user_id].get("total_spent", 0) + orders[order_id].get("price", 0)
-                    save_json(USERS_FILE, users)
-                
-                await bot.send_message(
-                    orders[order_id]["user_id"],
-                    "🎉 *Ваш заказ завершен!*\n\nПожалуйста, оставьте отзыв через кнопку ⭐ Оставить отзыв.",
-                    parse_mode="Markdown"
-                )
-                
-                # Генерируем и отправляем чек при завершении
-                receipt_img = await generate_receipt(orders[order_id])
-                await bot.send_photo(
-                    orders[order_id]["user_id"],
-                    types.BufferedInputFile(receipt_img.getvalue(), filename="receipt.png"),
-                    caption=f"🧾 *Чек об оплате заказа {order_id}*\n\nСохраните для отчетности."
-                )
-            
-            await callback.message.edit_text(f"✅ Статус заказа {order_id} изменен на {status_text}")
-    
-    # Одобрение скидки
-    elif action == "approve":
-        _, _, user_id = callback.data.split("_")
-        await callback.message.answer(f"💰 Введите размер скидки в % для пользователя @{user_id}:")
-        # Здесь можно добавить сохранение скидки
-    
-    # Дизайнеры и франшизы
-    elif action in ["accept", "reject"]:
-        parts = callback.data.split("_")
-        action = parts[0]
-        role = parts[1]
-        user_id = int(parts[2])
-        
-        if role == "designer":
-            designers = load_json(DESIGNERS_FILE)
-            if str(user_id) in designers:
-                if action == "accept":
-                    designers[str(user_id)]["status"] = "accepted"
-                    await bot.send_message(user_id, "✅ *Заявка дизайнера одобрена!* С вами свяжутся.", parse_mode="Markdown")
-                else:
-                    designers[str(user_id)]["status"] = "rejected"
-                    await bot.send_message(user_id, "❌ Заявка отклонена.", parse_mode="Markdown")
-                save_json(DESIGNERS_FILE, designers)
-        
-        elif role == "franchise":
-            franchises = load_json(FRANCHISE_FILE)
-            if str(user_id) in franchises:
-                if action == "accept":
-                    franchises[str(user_id)]["status"] = "accepted"
-                    await bot.send_message(user_id, "✅ *Вы стали частью фирмы!* 80% вам, 20% нам.", parse_mode="Markdown")
-                else:
-                    franchises[str(user_id)]["status"] = "rejected"
-                    await bot.send_message(user_id, "❌ Заявка отклонена.", parse_mode="Markdown")
-                save_json(FRANCHISE_FILE, franchises)
-        
-        await callback.message.edit_text(callback.message.text + f"\n\n✅ {action.upper()}")
-    
+    await callback.message.edit_text(f"🎯 *Новый статус для {order_id}:*", reply_markup=keyboard)
     await callback.answer()
 
-# ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
+@dp.callback_query(lambda c: c.data.startswith("set_status_"))
+async def set_order_status(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("❌ Только для админа")
+        return
+    
+    _, _, order_id, status = callback.data.split("_")
+    orders = load_json(ORDERS_FILE)
+    
+    if order_id in orders:
+        old_status = orders[order_id].get("status", "new")
+        orders[order_id]["status"] = status
+        save_json(ORDERS_FILE, orders)
+        
+        status_text = ORDER_STATUSES.get(status, status)
+        await bot.send_message(
+            orders[order_id]["user_id"],
+            f"🔄 *Статус заказа обновлен!*\n\n📦 Заказ: {order_id}\n📊 Новый статус: {status_text}",
+            parse_mode="Markdown"
+        )
+        
+        if status == "completed":
+            users = load_json(USERS_FILE)
+            user_id = str(orders[order_id]["user_id"])
+            if user_id in users:
+                users[user_id]["total_orders"] = users[user_id].get("total_orders", 0) + 1
+                users[user_id]["total_spent"] = users[user_id].get("total_spent", 0) + orders[order_id].get("price", 0)
+                save_json(USERS_FILE, users)
+        
+        await callback.message.edit_text(f"✅ Статус {order_id} изменен на {status_text}")
+    await callback.answer()
+
+# ========== ОСНОВНАЯ ЗАЯВКА ==========
+@dp.message(F.text == "📝 Оставить заявку")
+async def start_order(message: types.Message, state: FSMContext):
+    await state.set_state(OrderForm.legal_accept)
+    await message.answer(
+        LEGAL_TEXT + "\n\n⬇️ *Для продолжения примите условия* ⬇️",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Принимаю условия", callback_data="accept_legal")]
+        ])
+    )
+
+@dp.callback_query(lambda c: c.data == "accept_legal")
+async def handle_legal(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("✅ *Условия приняты!* Продолжаем оформление.", parse_mode="Markdown")
+    await state.set_state(OrderForm.name)
+    await callback.message.answer("🔹 *Как вас зовут?*", reply_markup=cancel_kb, parse_mode="Markdown")
+    await callback.answer()
+
+@dp.message(F.text == "❌ Отмена")
+async def cancel_order(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Отменено.", reply_markup=main_menu if message.from_user.id != ADMIN_ID else admin_menu)
+
+@dp.message(OrderForm.name)
+async def get_name(message: types.Message, state: FSMContext):
+    if len(message.text) < 2:
+        await message.answer("❌ Введите корректное имя")
+        return
+    await state.update_data(name=message.text)
+    await state.set_state(OrderForm.contact)
+    await message.answer("🔹 *Контакты для связи:*", reply_markup=cancel_kb, parse_mode="Markdown")
+
+@dp.message(OrderForm.contact)
+async def get_contact(message: types.Message, state: FSMContext):
+    contact = message.text.strip()
+    if contact.lower() == "пропустить":
+        contact = f"Telegram: @{message.from_user.username}" if message.from_user.username else f"ID: {message.from_user.id}"
+    await state.update_data(contact=contact)
+    await state.set_state(OrderForm.delivery)
+    await message.answer("🔹 *Способ получения:*", reply_markup=delivery_kb, parse_mode="Markdown")
+
+@dp.message(OrderForm.delivery)
+async def get_delivery(message: types.Message, state: FSMContext):
+    if "Самовывоз" in message.text:
+        delivery = "🚗 Самовывоз"
+    elif "Почта" in message.text:
+        delivery = "📦 Почта России"
+    elif "СДЭК" in message.text:
+        delivery = "🚚 СДЭК"
+    else:
+        await message.answer("❌ Выберите из кнопок")
+        return
+    
+    await state.update_data(delivery=delivery)
+    await state.set_state(OrderForm.promo)
+    await message.answer("🎟 *Промокод* (или 'пропустить'):", reply_markup=cancel_kb, parse_mode="Markdown")
+
+@dp.message(OrderForm.promo)
+async def get_promo(message: types.Message, state: FSMContext):
+    promo = None if message.text.lower() == "пропустить" else message.text.upper()
+    if promo:
+        promocodes = load_json(PROMOCODES_FILE)
+        if promo in promocodes and not promocodes[promo]["used"]:
+            await state.update_data(promo=promo)
+            await message.answer(f"✅ Промокод {promo} активирован!")
+        else:
+            await message.answer("❌ Неверный промокод")
+            await state.update_data(promo=None)
+    else:
+        await state.update_data(promo=None)
+    
+    await state.set_state(OrderForm.model_type)
+    await message.answer("🔹 *У вас есть готовая модель?*", reply_markup=model_type_kb, parse_mode="Markdown")
+
+@dp.message(OrderForm.model_type)
+async def get_model_type(message: types.Message, state: FSMContext):
+    if "готовая модель" in message.text:
+        await state.update_data(model_type="ready", files=[])
+        await state.set_state(OrderForm.waiting_files)
+        await message.answer("📁 *Отправьте файлы STL/OBJ/3MF*\nКогда закончите - напишите 'готово'", reply_markup=cancel_kb, parse_mode="Markdown")
+    elif "сделать модель" in message.text:
+        await state.update_data(model_type="need_design", files=[])
+        await state.set_state(OrderForm.description)
+        await message.answer("🎨 *Опишите, что нужно смоделировать:*", reply_markup=cancel_kb, parse_mode="Markdown")
+    else:
+        await message.answer("❌ Выберите из кнопок")
+
+@dp.message(OrderForm.waiting_files)
+async def get_files(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    files = data.get("files", [])
+    
+    if message.document:
+        file_name = message.document.file_name
+        ext = file_name.split('.')[-1].lower() if '.' in file_name else ''
+        if ext in ['stl', 'obj', '3mf']:
+            files.append({"file_id": message.document.file_id, "name": file_name})
+            await state.update_data(files=files)
+            await message.answer(f"✅ Добавлен {file_name}\nВсего: {len(files)}")
+        else:
+            await message.answer("❌ Неподдерживаемый формат")
+    elif message.text and message.text.lower() == "готово":
+        if not files:
+            await message.answer("❌ Отправьте хотя бы один файл")
+            return
+        await state.set_state(OrderForm.description)
+        await message.answer("📝 *Пожелания по печати:*", reply_markup=cancel_kb, parse_mode="Markdown")
+    else:
+        await message.answer("Отправьте файл или напишите 'готово'")
+
+@dp.message(OrderForm.description)
+async def get_description(message: types.Message, state: FSMContext):
+    await state.update_data(description=message.text)
+    data = await state.get_data()
+    order_id = generate_order_id()
+    
+    order = {
+        "order_id": order_id,
+        "user_id": message.from_user.id,
+        "username": message.from_user.username,
+        "name": data["name"],
+        "contact": data["contact"],
+        "delivery": data["delivery"],
+        "promocode": data.get("promo"),
+        "model_type": data["model_type"],
+        "files": data.get("files", []),
+        "description": data["description"],
+        "status": "new",
+        "created_at": str(datetime.now())
+    }
+    
+    orders = load_json(ORDERS_FILE)
+    orders[order_id] = order
+    save_json(ORDERS_FILE, orders)
+    
+    await message.answer(f"✅ *Заявка отправлена!*\n🆔 Номер: `{order_id}`\n\nСтатус можно проверить /status", parse_mode="Markdown")
+    
+    if ADMIN_ID:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Создать квитанцию", callback_data=f"create_invoice_{order_id}")]
+        ])
+        await bot.send_message(ADMIN_ID, f"🔔 *Новая заявка!*\n👤 {data['name']}\n🆔 {order_id}", reply_markup=kb)
+    
+    await state.clear()
+
+# ========== ВЕБ-СЕРВЕР ==========
 async def health_check(request):
     return web.Response(text="OK")
 
@@ -1312,15 +1283,12 @@ async def start_web_server():
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"✅ Веб-сервер запущен на порту {port}")
+    print(f"✅ Веб-сервер на порту {port}")
 
 # ========== ЗАПУСК ==========
 async def main():
     await start_web_server()
-    print("🚀 Бот ИП «Kildear» запущен!")
-    print(f"✅ Токен: {TOKEN[:10]}...")
-    print(f"✅ ADMIN_ID: {ADMIN_ID}")
-    
+    print("🚀 Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
